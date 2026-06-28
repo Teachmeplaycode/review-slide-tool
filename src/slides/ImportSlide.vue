@@ -1,9 +1,53 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
+import gsap from 'gsap'
 import { ArrowRight, BookOpen, Database, RotateCcw, Trash2 } from 'lucide-vue-next'
 import FileDrop from '../components/FileDrop.vue'
+import MarkdownTerminalSample from '../components/MarkdownTerminalSample.vue'
+import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
 
+const props = defineProps<{
+  active: boolean
+}>()
+
 const store = useReviewStore()
+const samplePanel = ref<HTMLElement | null>(null)
+const commandPanel = ref<HTMLElement | null>(null)
+
+watch(
+  () => props.active,
+  async (active) => {
+    if (!active) return
+    await nextTick()
+    replayEntrance()
+  },
+  { immediate: true },
+)
+
+function replayEntrance() {
+  if (prefersReducedMotion()) return
+
+  if (samplePanel.value) {
+    gsap.fromTo(
+      samplePanel.value,
+      { autoAlpha: 0, y: 22, scale: 0.985 },
+      { autoAlpha: 1, y: 0, scale: 1, duration: 0.68, delay: 1.15, ease: 'power3.out', overwrite: true },
+    )
+  }
+
+  if (commandPanel.value) {
+    gsap.fromTo(
+      commandPanel.value,
+      { autoAlpha: 0, y: 18 },
+      { autoAlpha: 1, y: 0, duration: 0.58, delay: 0.38, ease: 'power3.out', overwrite: true },
+    )
+  }
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 </script>
 
 <template>
@@ -11,28 +55,21 @@ const store = useReviewStore()
     <div class="slide-inner import-grid">
       <div class="hero-copy">
         <span class="section-label">Review Library</span>
-        <h1>把固定题库变成横向复习流程</h1>
-        <p>
-          导入带答案的 docx 或 markdown，先检查题目切分，再随机抽题、挖空默写、提交复盘。
-        </p>
+        <TypewriterText as="h1" text="把固定题库变成横向复习流程" :active="active" :duration="1.6" />
+        <TypewriterText
+          as="p"
+          text="导入带答案的 docx 或 markdown，先检查题目切分，再随机抽题、挖空默写、提交复盘。"
+          :active="active"
+          :delay="0.65"
+          :duration="1.7"
+        />
 
-        <div class="sample-panel">
-          <div class="terminal-head">
-            <span />
-            <span />
-            <span />
-            <strong>supported-pattern.md</strong>
-          </div>
-          <pre><code>1.瀑布模型的存在问题是（  ）。
-A.用户容易参与开发 B.缺乏灵活性
-答案：B
-
-### 1.什么是软件危机？
-软件规模迅速膨胀、开发方式滞后...</code></pre>
+        <div ref="samplePanel">
+          <MarkdownTerminalSample />
         </div>
       </div>
 
-      <aside class="command-panel">
+      <aside ref="commandPanel" class="command-panel">
         <FileDrop :busy="store.importing" @file="store.importFile" />
         <p v-if="store.error" class="error-line">{{ store.error }}</p>
 

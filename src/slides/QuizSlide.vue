@@ -2,7 +2,12 @@
 import { ArrowLeft, ArrowRight, Send } from 'lucide-vue-next'
 import { computed } from 'vue'
 import QuizCard from '../components/QuizCard.vue'
+import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
+
+defineProps<{
+  active: boolean
+}>()
 
 const store = useReviewStore()
 const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionIndex])
@@ -13,8 +18,14 @@ const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionI
     <div class="slide-inner quiz-layout">
       <aside class="quiz-rail">
         <span class="section-label">Answer</span>
-        <h2>逐题完成</h2>
-        <p>完成后提交，系统会保留你的答案并展示标准答案、匹配度和复盘提示。</p>
+        <TypewriterText as="h2" text="逐题完成" :active="active" :duration="0.9" />
+        <TypewriterText
+          as="p"
+          text="完成后提交，系统会保留你的答案并展示标准答案、匹配度和复盘提示。"
+          :active="active"
+          :delay="0.36"
+          :duration="1.28"
+        />
         <div class="answer-map" data-allow-scroll="true">
           <button
             v-for="(question, index) in store.quizQuestions"

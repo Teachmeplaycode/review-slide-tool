@@ -2,8 +2,13 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { Eye, EyeOff, RotateCw, RotateCcw, Shuffle, Upload } from 'lucide-vue-next'
 import ResultReview from '../components/ResultReview.vue'
+import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
 import type { ResultFilter } from '../types'
+
+defineProps<{
+  active: boolean
+}>()
 
 const store = useReviewStore()
 const resultList = ref<HTMLElement | null>(null)
@@ -17,6 +22,7 @@ const filterOptions: { label: string; value: ResultFilter }[] = [
 ]
 
 const wrongCount = computed(() => store.results.filter((result) => result.status !== 'correct').length)
+const scoreTitle = computed(() => `本轮得分 ${store.score}`)
 
 watch(
   () => [store.resultFilter, store.results.length],
@@ -48,10 +54,14 @@ async function jumpToWrong() {
     <div class="slide-inner result-layout">
       <aside class="side-copy">
         <span class="section-label">Result</span>
-        <h2>本轮得分 {{ store.score }}</h2>
-        <p>
-          每题都保留了你的作答和标准答案。简答题是半自动匹配，低分题建议人工复核。
-        </p>
+        <TypewriterText as="h2" :text="scoreTitle" :active="active" :duration="1.05" />
+        <TypewriterText
+          as="p"
+          text="每题都保留了你的作答和标准答案。简答题是半自动匹配，低分题建议人工复核。"
+          :active="active"
+          :delay="0.4"
+          :duration="1.35"
+        />
         <dl class="stats">
           <div>
             <dt>{{ store.results.filter((item) => item.status === 'correct').length }}</dt>

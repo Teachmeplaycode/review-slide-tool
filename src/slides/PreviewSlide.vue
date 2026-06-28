@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ArrowRight, Save } from 'lucide-vue-next'
 import QuestionEditor from '../components/QuestionEditor.vue'
+import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
+
+defineProps<{
+  active: boolean
+}>()
 
 const store = useReviewStore()
 </script>
@@ -11,10 +16,14 @@ const store = useReviewStore()
     <div class="slide-inner split-layout">
       <aside class="side-copy">
         <span class="section-label">Parse Preview</span>
-        <h2>检查题目和答案切分</h2>
-        <p>
-          系统已经先按题号、答案标记、空格和问句特征做了一轮识别。低置信度或缺答案的题目会在卡片上提示。
-        </p>
+        <TypewriterText as="h2" text="检查题目和答案切分" :active="active" :duration="1.15" />
+        <TypewriterText
+          as="p"
+          text="系统已经先按题号、答案标记、空格和问句特征做了一轮识别。低置信度或缺答案的题目会在卡片上提示。"
+          :active="active"
+          :delay="0.42"
+          :duration="1.45"
+        />
         <dl class="stats">
           <div>
             <dt>{{ store.currentSet?.questions.length ?? 0 }}</dt>

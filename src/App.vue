@@ -31,10 +31,10 @@ onMounted(() => {
     :total="labels.length"
     @navigate="store.goTo"
   >
-    <ImportSlide />
-    <PreviewSlide />
-    <SetupSlide />
-    <QuizSlide />
-    <ResultSlide />
+    <ImportSlide :active="store.slideIndex === 0" />
+    <PreviewSlide :active="store.slideIndex === 1" />
+    <SetupSlide :active="store.slideIndex === 2" />
+    <QuizSlide :active="store.slideIndex === 3" />
+    <ResultSlide :active="store.slideIndex === 4" />
   </SlideDeck>
 </template>

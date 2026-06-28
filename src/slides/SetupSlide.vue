@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { BookOpen, Play, Shuffle } from 'lucide-vue-next'
 import { computed } from 'vue'
+import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
 import type { QuestionType, ReviewMode } from '../types'
+
+defineProps<{
+  active: boolean
+}>()
 
 const store = useReviewStore()
 
@@ -45,10 +50,14 @@ function updateReviewMode(mode: ReviewMode) {
     <div class="slide-inner setup-grid">
       <div class="side-copy">
         <span class="section-label">Quiz Setup</span>
-        <h2>按这次复习的强度抽题</h2>
-        <p>
-          默认随机抽题，选择题和判断题直接判分，简答题可随机变成挖空默写。
-        </p>
+        <TypewriterText as="h2" text="按这次复习的强度抽题" :active="active" :duration="1.2" />
+        <TypewriterText
+          as="p"
+          text="默认随机抽题，选择题和判断题直接判分，简答题可随机变成挖空默写。"
+          :active="active"
+          :delay="0.42"
+          :duration="1.35"
+        />
       </div>
 
       <div class="setup-panel">
