@@ -14,6 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const track = ref<HTMLElement | null>(null)
+const sliding = ref(false)
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -21,12 +22,18 @@ watch(
   () => props.activeIndex,
   (index) => {
     if (!track.value) return
+    sliding.value = true
     gsap.to(track.value, {
       xPercent: (-100 / props.total) * index,
-      duration: 0.72,
-      ease: 'power3.inOut',
+      duration: 0.86,
+      ease: 'power4.inOut',
+      force3D: true,
+      autoRound: false,
       overwrite: true,
-      onComplete: () => ScrollTrigger.refresh(),
+      onComplete: () => {
+        sliding.value = false
+        ScrollTrigger.refresh()
+      },
     })
   },
 )
@@ -47,6 +54,7 @@ function onWheel(event: WheelEvent) {
   if (target?.closest('[data-allow-scroll="true"]')) return
 
   event.preventDefault()
+  if (sliding.value) return
   navigate(event.deltaY > 0 || event.deltaX > 0 ? 1 : -1)
 }
 
