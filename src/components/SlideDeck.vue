@@ -32,21 +32,14 @@ watch(
 )
 
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
   window.addEventListener('wheel', onWheel, { passive: false })
   ScrollTrigger.refresh()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('wheel', onWheel)
   ScrollTrigger.getAll().forEach((trigger) => trigger.kill())
 })
-
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'ArrowRight') navigate(1)
-  if (event.key === 'ArrowLeft') navigate(-1)
-}
 
 function onWheel(event: WheelEvent) {
   if (Math.abs(event.deltaY) < 35 && Math.abs(event.deltaX) < 35) return
