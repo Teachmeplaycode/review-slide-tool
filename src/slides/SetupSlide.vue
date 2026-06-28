@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Play, Shuffle } from 'lucide-vue-next'
+import { BookOpen, Play, Shuffle } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useReviewStore } from '../stores/review'
-import type { QuestionType } from '../types'
+import type { QuestionType, ReviewMode } from '../types'
 
 const store = useReviewStore()
 
@@ -13,7 +13,19 @@ const typeOptions: { label: string; value: QuestionType }[] = [
   { label: '简答题', value: 'short' },
 ]
 
-const maxCount = computed(() => Math.max(1, store.enabledQuestions.length))
+const reviewModeOptions: { label: string; description: string; value: ReviewMode }[] = [
+  { label: '全题随机', description: '从当前启用题目中随机抽取', value: 'random' },
+  { label: '错题优先', description: '先抽最近答错或待复核的题', value: 'mistakes_first' },
+  { label: '只练错题', description: '只抽最近一次未完全正确的题', value: 'mistakes_only' },
+]
+
+const availableCount = computed(() => store.availableQuizQuestions.length)
+const maxCount = computed(() => Math.max(1, availableCount.value))
+const currentCount = computed(() => Math.min(store.quizConfig.count, maxCount.value))
+const countLabel = computed(() => {
+  if (availableCount.value === 0) return '暂无可抽题'
+  return `${Math.min(store.quizConfig.count, availableCount.value)} / ${availableCount.value}`
+})
 
 function updateCount(event: Event) {
   store.quizConfig.count = Number((event.target as HTMLInputElement).value)
@@ -21,6 +33,10 @@ function updateCount(event: Event) {
 
 function updateClozeRatio(event: Event) {
   store.quizConfig.clozeRatio = Number((event.target as HTMLInputElement).value)
+}
+
+function updateReviewMode(mode: ReviewMode) {
+  store.setReviewMode(mode)
 }
 </script>
 
@@ -45,14 +61,35 @@ function updateClozeRatio(event: Event) {
             type="range"
             min="1"
             :max="maxCount"
-            :value="store.quizConfig.count"
+            :value="currentCount"
+            :disabled="availableCount === 0"
             @input="updateCount"
           />
           <div class="range-row">
             <span>1</span>
-            <strong>{{ store.quizConfig.count }} / {{ maxCount }}</strong>
-            <span>{{ maxCount }}</span>
+            <strong>{{ countLabel }}</strong>
+            <span>{{ availableCount }}</span>
           </div>
+        </section>
+
+        <section>
+          <header>
+            <BookOpen :size="18" />
+            <strong>复习队列</strong>
+          </header>
+          <div class="mode-grid">
+            <button
+              v-for="mode in reviewModeOptions"
+              :key="mode.value"
+              type="button"
+              :class="{ active: store.quizConfig.reviewMode === mode.value }"
+              @click="updateReviewMode(mode.value)"
+            >
+              <strong>{{ mode.label }}</strong>
+              <span>{{ mode.description }}</span>
+            </button>
+          </div>
+          <p class="setup-hint">当前需复盘 {{ store.reviewQueueCount }} 题；选择“只练错题”时会自动排除已经练对的题。</p>
         </section>
 
         <section>
@@ -95,7 +132,7 @@ function updateClozeRatio(event: Event) {
           </div>
         </section>
 
-        <button class="btn-dark wide" type="button" :disabled="!store.enabledQuestions.length" @click="store.startQuiz">
+        <button class="btn-dark wide" type="button" :disabled="availableCount === 0" @click="store.startQuiz">
           <Play :size="18" /> 开始作答
         </button>
       </div>

@@ -1,11 +1,14 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StudySet } from '../types'
+import { recordReviewStats } from '../services/db/indexedDb'
 import { useReviewStore } from './review'
 
 vi.mock('../services/db/indexedDb', () => ({
   clearStudySets: vi.fn(() => Promise.resolve()),
+  listReviewStats: vi.fn(() => Promise.resolve([])),
   listStudySets: vi.fn(() => Promise.resolve([])),
+  recordReviewStats: vi.fn(() => Promise.resolve()),
   saveAttempt: vi.fn(() => Promise.resolve()),
   saveStudySet: vi.fn(() => Promise.resolve()),
 }))
@@ -13,6 +16,7 @@ vi.mock('../services/db/indexedDb', () => ({
 describe('review store recent study sets', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('opens a recent study set and navigates to preview', () => {
@@ -41,6 +45,23 @@ describe('review store recent study sets', () => {
     expect(store.currentSet).toBeNull()
     expect(store.slideIndex).toBe(0)
     expect(store.unlockedIndex).toBe(0)
+  })
+
+  it('records question review stats after submit', async () => {
+    const store = useReviewStore()
+    const studySet = makeStudySet()
+
+    store.currentSet = studySet
+    store.quizConfig.count = 1
+    store.startQuiz()
+    store.setAnswer('q_1', 'B')
+    await store.submitQuiz()
+
+    expect(recordReviewStats).toHaveBeenCalledWith(
+      studySet.id,
+      [expect.objectContaining({ status: 'wrong', score: 0 })],
+      expect.any(Number),
+    )
   })
 })
 

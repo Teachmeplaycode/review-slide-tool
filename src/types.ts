@@ -33,6 +33,7 @@ export type QuizConfig = {
   types: QuestionType[]
   enableCloze: boolean
   clozeRatio: number
+  reviewMode: ReviewMode
 }
 
 export type ClozeBlank = {
@@ -59,6 +60,8 @@ export type GradeStatus = 'correct' | 'partial' | 'review' | 'wrong'
 
 export type ResultFilter = 'all' | 'wrong' | 'review' | 'correct'
 
+export type ReviewMode = 'random' | 'mistakes_first' | 'mistakes_only'
+
 export type GradedQuestion = {
   question: QuizQuestion
   userAnswer: string | string[]
@@ -75,6 +78,21 @@ export type Attempt = {
   results: GradedQuestion[]
   score: number
   createdAt: number
+}
+
+export type QuestionReviewStat = {
+  id: string
+  studySetId: string
+  questionId: string
+  attempts: number
+  correctCount: number
+  reviewCount: number
+  wrongCount: number
+  correctStreak: number
+  lastStatus: GradeStatus
+  lastScore: number
+  lastAttemptAt: number
+  updatedAt: number
 }
 
 export type ImportedText = {

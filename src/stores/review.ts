@@ -3,25 +3,35 @@ import type {
   Attempt,
   GradedQuestion,
   ParsedQuestion,
+  QuestionReviewStat,
   QuestionOption,
   QuestionType,
   QuizConfig,
   QuizQuestion,
+  ReviewMode,
   ResultFilter,
   StudySet,
   UserAnswer,
 } from '../types'
-import { clearStudySets, saveAttempt, saveStudySet, listStudySets } from '../services/db/indexedDb'
+import {
+  clearStudySets,
+  listReviewStats,
+  saveAttempt,
+  saveStudySet,
+  listStudySets,
+  recordReviewStats,
+} from '../services/db/indexedDb'
 import { gradeQuiz, summarizeScore } from '../services/grading/grader'
 import { importStudyFile } from '../services/importers/fileImporter'
 import { parseQuestions } from '../services/parser/questionParser'
-import { buildQuizSession } from '../services/quiz/session'
+import { buildQuizSession, countReviewQueue, filterQuestionPool } from '../services/quiz/session'
 
 type ReviewState = {
   slideIndex: number
   unlockedIndex: number
   recentSets: StudySet[]
   currentSet: StudySet | null
+  reviewStats: QuestionReviewStat[]
   quizConfig: QuizConfig
   quizQuestions: QuizQuestion[]
   activeQuestionIndex: number
@@ -39,11 +49,13 @@ export const useReviewStore = defineStore('review', {
     unlockedIndex: 0,
     recentSets: [],
     currentSet: null,
+    reviewStats: [],
     quizConfig: {
       count: 20,
       types: ['choice', 'true_false', 'blank', 'short'],
       enableCloze: true,
       clozeRatio: 0.3,
+      reviewMode: 'random',
     },
     quizQuestions: [],
     activeQuestionIndex: 0,
@@ -61,6 +73,12 @@ export const useReviewStore = defineStore('review', {
     },
     totalAvailable(state): number {
       return state.currentSet?.questions.filter((question) => question.enabled).length ?? 0
+    },
+    reviewQueueCount(state): number {
+      return countReviewQueue(state.currentSet?.questions ?? [], state.reviewStats)
+    },
+    availableQuizQuestions(state): ParsedQuestion[] {
+      return filterQuestionPool(state.currentSet?.questions ?? [], state.quizConfig, state.reviewStats)
     },
     answeredCount(state): number {
       return state.quizQuestions.filter((question) => hasAnswer(state.answers[question.id])).length
@@ -109,9 +127,11 @@ export const useReviewStore = defineStore('review', {
           createdAt: now,
           updatedAt: now,
         }
+        this.reviewStats = []
 
         await saveStudySet(this.currentSet)
         this.recentSets = await listStudySets()
+        this.quizConfig.reviewMode = 'random'
         this.quizConfig.count = Math.min(20, Math.max(1, questions.length))
         this.unlockTo(1)
       } catch (error) {
@@ -121,16 +141,19 @@ export const useReviewStore = defineStore('review', {
       }
     },
 
-    loadStudySet(studySet: StudySet) {
+    async loadStudySet(studySet: StudySet) {
       this.currentSet = cloneStudySet(studySet)
       this.quizConfig.count = Math.min(20, Math.max(1, studySet.questions.length))
       this.unlockTo(1)
+      this.reviewStats = await listReviewStats(studySet.id)
+      this.clampQuizCount()
     },
 
     async clearRecentSets() {
       await clearStudySets()
       this.recentSets = []
       this.currentSet = null
+      this.reviewStats = []
       this.quizQuestions = []
       this.answers = {}
       this.results = []
@@ -229,11 +252,27 @@ export const useReviewStore = defineStore('review', {
       if (!enabled) {
         this.quizConfig.types = this.quizConfig.types.filter((item) => item !== type)
       }
+
+      this.clampQuizCount()
+    },
+
+    setReviewMode(mode: ReviewMode) {
+      this.quizConfig.reviewMode = mode
+      this.clampQuizCount()
+    },
+
+    clampQuizCount() {
+      const max = this.availableQuizQuestions.length
+      if (max <= 0) return
+      this.quizConfig.count = Math.max(1, Math.min(this.quizConfig.count, max))
     },
 
     startQuiz() {
       if (!this.currentSet) return
-      this.quizQuestions = buildQuizSession(this.currentSet.questions, this.quizConfig)
+      this.clampQuizCount()
+      const quizQuestions = buildQuizSession(this.currentSet.questions, this.quizConfig, this.reviewStats)
+      if (!quizQuestions.length) return
+      this.quizQuestions = quizQuestions
       this.answers = {}
       this.results = []
       this.resultFilter = 'all'
@@ -256,6 +295,7 @@ export const useReviewStore = defineStore('review', {
 
     async submitQuiz() {
       if (!this.currentSet) return
+      const createdAt = Date.now()
       const answers = Object.entries(this.answers).map<UserAnswer>(([questionId, value]) => ({
         questionId,
         value,
@@ -270,10 +310,12 @@ export const useReviewStore = defineStore('review', {
         answers,
         results: this.results,
         score: summarizeScore(this.results),
-        createdAt: Date.now(),
+        createdAt,
       }
 
       await saveAttempt(attempt)
+      await recordReviewStats(this.currentSet.id, this.results, createdAt)
+      this.reviewStats = await listReviewStats(this.currentSet.id)
       this.unlockTo(4)
     },
 

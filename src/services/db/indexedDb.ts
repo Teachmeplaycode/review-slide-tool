@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Attempt, StudySet } from '../../types'
+import type { Attempt, GradedQuestion, QuestionReviewStat, StudySet } from '../../types'
 
 type ReviewDb = DBSchema & {
   studySets: {
@@ -15,6 +15,14 @@ type ReviewDb = DBSchema & {
     indexes: {
       studySetId: string
       createdAt: number
+    }
+  }
+  reviewStats: {
+    key: string
+    value: QuestionReviewStat
+    indexes: {
+      studySetId: string
+      updatedAt: number
     }
   }
 }
@@ -37,32 +45,93 @@ export async function saveAttempt(attempt: Attempt): Promise<void> {
   await db.put('attempts', cloneForDb(attempt))
 }
 
+export async function recordReviewStats(
+  studySetId: string,
+  results: GradedQuestion[],
+  attemptedAt = Date.now(),
+): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('reviewStats', 'readwrite')
+  const store = tx.objectStore('reviewStats')
+
+  for (const result of results) {
+    const id = createReviewStatId(studySetId, result.question.id)
+    const previous = await store.get(id)
+    const isCorrect = result.status === 'correct'
+    const isReview = result.status === 'partial' || result.status === 'review'
+    const isWrong = result.status === 'wrong'
+
+    const next: QuestionReviewStat = {
+      id,
+      studySetId,
+      questionId: result.question.id,
+      attempts: (previous?.attempts ?? 0) + 1,
+      correctCount: (previous?.correctCount ?? 0) + (isCorrect ? 1 : 0),
+      reviewCount: (previous?.reviewCount ?? 0) + (isReview ? 1 : 0),
+      wrongCount: (previous?.wrongCount ?? 0) + (isWrong ? 1 : 0),
+      correctStreak: isCorrect ? (previous?.correctStreak ?? 0) + 1 : 0,
+      lastStatus: result.status,
+      lastScore: result.score,
+      lastAttemptAt: attemptedAt,
+      updatedAt: attemptedAt,
+    }
+
+    await store.put(next)
+  }
+
+  await tx.done
+}
+
 export async function listAttempts(studySetId: string): Promise<Attempt[]> {
   const db = await getDb()
   const attempts = await db.getAllFromIndex('attempts', 'studySetId', studySetId)
   return attempts.sort((a, b) => b.createdAt - a.createdAt)
 }
 
+export async function listReviewStats(studySetId: string): Promise<QuestionReviewStat[]> {
+  const db = await getDb()
+  const stats = await db.getAllFromIndex('reviewStats', 'studySetId', studySetId)
+  return stats.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 export async function clearStudySets(): Promise<void> {
   const db = await getDb()
-  const tx = db.transaction(['studySets', 'attempts'], 'readwrite')
-  await Promise.all([tx.objectStore('studySets').clear(), tx.objectStore('attempts').clear()])
+  const tx = db.transaction(['studySets', 'attempts', 'reviewStats'], 'readwrite')
+  await Promise.all([
+    tx.objectStore('studySets').clear(),
+    tx.objectStore('attempts').clear(),
+    tx.objectStore('reviewStats').clear(),
+  ])
   await tx.done
 }
 
 async function getDb(): Promise<IDBPDatabase<ReviewDb>> {
-  dbPromise ??= openDB<ReviewDb>('review-slide-tool', 1, {
+  dbPromise ??= openDB<ReviewDb>('review-slide-tool', 2, {
     upgrade(db) {
-      const studySets = db.createObjectStore('studySets', { keyPath: 'id' })
-      studySets.createIndex('updatedAt', 'updatedAt')
+      if (!db.objectStoreNames.contains('studySets')) {
+        const studySets = db.createObjectStore('studySets', { keyPath: 'id' })
+        studySets.createIndex('updatedAt', 'updatedAt')
+      }
 
-      const attempts = db.createObjectStore('attempts', { keyPath: 'id' })
-      attempts.createIndex('studySetId', 'studySetId')
-      attempts.createIndex('createdAt', 'createdAt')
+      if (!db.objectStoreNames.contains('attempts')) {
+        const attempts = db.createObjectStore('attempts', { keyPath: 'id' })
+        attempts.createIndex('studySetId', 'studySetId')
+        attempts.createIndex('createdAt', 'createdAt')
+      }
+
+      if (!db.objectStoreNames.contains('reviewStats')) {
+        const reviewStats = db.createObjectStore('reviewStats', { keyPath: 'id' })
+        reviewStats.createIndex('studySetId', 'studySetId')
+        reviewStats.createIndex('updatedAt', 'updatedAt')
+      }
     },
   })
 
   return dbPromise
+}
+
+function createReviewStatId(studySetId: string, questionId: string): string {
+  return `${studySetId}::${questionId}`
 }
 
 function cloneForDb<T>(value: T): T {

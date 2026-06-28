@@ -621,6 +621,45 @@ input[type='range'] {
   gap: 10px;
 }
 
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-grid button {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 86px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.45);
+  text-align: left;
+}
+
+.mode-grid button.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--warm);
+}
+
+.mode-grid button span {
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mode-grid button.active span {
+  color: rgba(245, 241, 234, 0.72);
+}
+
+.setup-hint {
+  color: var(--faint);
+  font-size: 13px;
+}
+
 .toggle-grid label,
 .toggle-row {
   padding: 12px;
@@ -1080,6 +1119,7 @@ input[type='range'] {
   }
 
   .toggle-grid,
+  .mode-grid,
   .choice-grid,
   .compare-grid {
     grid-template-columns: 1fr;
