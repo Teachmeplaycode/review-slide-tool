@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { Eye, EyeOff, RotateCcw, Shuffle, Upload } from 'lucide-vue-next'
+import { computed, nextTick, ref, watch } from 'vue'
+import { Eye, EyeOff, RotateCw, RotateCcw, Shuffle, Upload } from 'lucide-vue-next'
 import ResultReview from '../components/ResultReview.vue'
 import { useReviewStore } from '../stores/review'
 import type { ResultFilter } from '../types'
 
 const store = useReviewStore()
+const resultList = ref<HTMLElement | null>(null)
+const wrongJumpIndex = ref(0)
 
 const filterOptions: { label: string; value: ResultFilter }[] = [
   { label: '全部', value: 'all' },
@@ -12,6 +15,32 @@ const filterOptions: { label: string; value: ResultFilter }[] = [
   { label: '待复核', value: 'review' },
   { label: '正确', value: 'correct' },
 ]
+
+const wrongCount = computed(() => store.results.filter((result) => result.status !== 'correct').length)
+
+watch(
+  () => [store.resultFilter, store.results.length],
+  () => {
+    wrongJumpIndex.value = 0
+  },
+)
+
+async function jumpToWrong() {
+  if (!wrongCount.value) return
+
+  if (store.resultFilter !== 'wrong') {
+    store.resultFilter = 'wrong'
+    wrongJumpIndex.value = 0
+  }
+
+  await nextTick()
+  const cards = Array.from(resultList.value?.querySelectorAll<HTMLElement>('.result-review') ?? [])
+  if (!cards.length) return
+
+  const targetIndex = wrongJumpIndex.value % cards.length
+  cards[targetIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
+  wrongJumpIndex.value = (targetIndex + 1) % cards.length
+}
 </script>
 
 <template>
@@ -44,7 +73,7 @@ const filterOptions: { label: string; value: ResultFilter }[] = [
         </button>
       </aside>
 
-      <div class="result-list" data-allow-scroll="true">
+      <div ref="resultList" class="result-list" data-allow-scroll="true">
         <div class="result-tools">
           <div class="segmented" aria-label="筛选结果">
             <button
@@ -57,11 +86,17 @@ const filterOptions: { label: string; value: ResultFilter }[] = [
               {{ option.label }}
             </button>
           </div>
-          <button class="mini-command" type="button" @click="store.showStandardAnswers = !store.showStandardAnswers">
-            <EyeOff v-if="store.showStandardAnswers" :size="14" />
-            <Eye v-else :size="14" />
-            {{ store.showStandardAnswers ? '隐藏答案' : '查看答案' }}
-          </button>
+          <div class="result-tool-actions">
+            <button class="mini-command" type="button" :disabled="!wrongCount" @click="jumpToWrong">
+              <RotateCw :size="14" />
+              跳到错题
+            </button>
+            <button class="mini-command" type="button" @click="store.showStandardAnswers = !store.showStandardAnswers">
+              <EyeOff v-if="store.showStandardAnswers" :size="14" />
+              <Eye v-else :size="14" />
+              {{ store.showStandardAnswers ? '隐藏答案' : '查看答案' }}
+            </button>
+          </div>
         </div>
 
         <ResultReview
