@@ -57,6 +57,8 @@ export type UserAnswer = {
 
 export type GradeStatus = 'correct' | 'partial' | 'review' | 'wrong'
 
+export type ResultFilter = 'all' | 'wrong' | 'review' | 'correct'
+
 export type GradedQuestion = {
   question: QuizQuestion
   userAnswer: string | string[]

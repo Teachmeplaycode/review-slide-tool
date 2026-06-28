@@ -5,6 +5,7 @@ import type { GradedQuestion } from '../types'
 defineProps<{
   result: GradedQuestion
   index: number
+  showAnswer: boolean
 }>()
 
 function answerText(value: string | string[]): string {
@@ -38,7 +39,8 @@ function statusLabel(status: GradedQuestion['status']): string {
       </section>
       <section>
         <span><Eye :size="14" /> 标准答案</span>
-        <p>{{ result.expectedAnswer }}</p>
+        <p v-if="showAnswer">{{ result.expectedAnswer }}</p>
+        <p v-else class="answer-hidden">答案已隐藏，点击上方“查看答案”后显示。</p>
       </section>
     </div>
     <footer>{{ result.detail }}</footer>

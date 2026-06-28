@@ -7,6 +7,7 @@ import type {
   QuestionType,
   QuizConfig,
   QuizQuestion,
+  ResultFilter,
   StudySet,
   UserAnswer,
 } from '../types'
@@ -26,6 +27,8 @@ type ReviewState = {
   activeQuestionIndex: number
   answers: Record<string, string | string[]>
   results: GradedQuestion[]
+  resultFilter: ResultFilter
+  showStandardAnswers: boolean
   importing: boolean
   error: string
 }
@@ -46,6 +49,8 @@ export const useReviewStore = defineStore('review', {
     activeQuestionIndex: 0,
     answers: {},
     results: [],
+    resultFilter: 'all',
+    showStandardAnswers: false,
     importing: false,
     error: '',
   }),
@@ -62,6 +67,13 @@ export const useReviewStore = defineStore('review', {
     },
     score(state): number {
       return summarizeScore(state.results)
+    },
+    filteredResults(state): GradedQuestion[] {
+      if (state.resultFilter === 'all') return state.results
+      if (state.resultFilter === 'wrong') {
+        return state.results.filter((result) => result.status !== 'correct')
+      }
+      return state.results.filter((result) => result.status === state.resultFilter)
     },
   },
 
@@ -211,6 +223,8 @@ export const useReviewStore = defineStore('review', {
       this.quizQuestions = buildQuizSession(this.currentSet.questions, this.quizConfig)
       this.answers = {}
       this.results = []
+      this.resultFilter = 'all'
+      this.showStandardAnswers = false
       this.activeQuestionIndex = 0
       this.unlockTo(3)
     },
@@ -234,6 +248,8 @@ export const useReviewStore = defineStore('review', {
         value,
       }))
       this.results = gradeQuiz(this.quizQuestions, answers)
+      this.resultFilter = 'all'
+      this.showStandardAnswers = false
 
       const attempt: Attempt = {
         id: createId('attempt'),

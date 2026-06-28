@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { RotateCcw, Shuffle, Upload } from 'lucide-vue-next'
+import { Eye, EyeOff, RotateCcw, Shuffle, Upload } from 'lucide-vue-next'
 import ResultReview from '../components/ResultReview.vue'
 import { useReviewStore } from '../stores/review'
+import type { ResultFilter } from '../types'
 
 const store = useReviewStore()
+
+const filterOptions: { label: string; value: ResultFilter }[] = [
+  { label: '全部', value: 'all' },
+  { label: '错题', value: 'wrong' },
+  { label: '待复核', value: 'review' },
+  { label: '正确', value: 'correct' },
+]
 </script>
 
 <template>
@@ -37,12 +45,36 @@ const store = useReviewStore()
       </aside>
 
       <div class="result-list" data-allow-scroll="true">
+        <div class="result-tools">
+          <div class="segmented" aria-label="筛选结果">
+            <button
+              v-for="option in filterOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: store.resultFilter === option.value }"
+              @click="store.resultFilter = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <button class="mini-command" type="button" @click="store.showStandardAnswers = !store.showStandardAnswers">
+            <EyeOff v-if="store.showStandardAnswers" :size="14" />
+            <Eye v-else :size="14" />
+            {{ store.showStandardAnswers ? '隐藏答案' : '查看答案' }}
+          </button>
+        </div>
+
         <ResultReview
-          v-for="(result, index) in store.results"
+          v-for="(result, index) in store.filteredResults"
           :key="result.question.id"
           :result="result"
           :index="index"
+          :show-answer="store.showStandardAnswers"
         />
+
+        <div v-if="!store.filteredResults.length" class="empty-filter">
+          当前筛选没有题目。
+        </div>
       </div>
     </div>
   </section>
