@@ -11,7 +11,7 @@ import type {
   StudySet,
   UserAnswer,
 } from '../types'
-import { saveAttempt, saveStudySet, listStudySets } from '../services/db/indexedDb'
+import { clearStudySets, saveAttempt, saveStudySet, listStudySets } from '../services/db/indexedDb'
 import { gradeQuiz, summarizeScore } from '../services/grading/grader'
 import { importStudyFile } from '../services/importers/fileImporter'
 import { parseQuestions } from '../services/parser/questionParser'
@@ -121,10 +121,23 @@ export const useReviewStore = defineStore('review', {
       }
     },
 
-    async loadStudySet(studySet: StudySet) {
-      this.currentSet = structuredClone(studySet)
+    loadStudySet(studySet: StudySet) {
+      this.currentSet = cloneStudySet(studySet)
       this.quizConfig.count = Math.min(20, Math.max(1, studySet.questions.length))
       this.unlockTo(1)
+    },
+
+    async clearRecentSets() {
+      await clearStudySets()
+      this.recentSets = []
+      this.currentSet = null
+      this.quizQuestions = []
+      this.answers = {}
+      this.results = []
+      this.resultFilter = 'all'
+      this.showStandardAnswers = false
+      this.slideIndex = 0
+      this.unlockedIndex = 0
     },
 
     updateQuestion(id: string, patch: Partial<ParsedQuestion>) {
@@ -287,6 +300,10 @@ function hasAnswer(value: string | string[] | undefined): boolean {
 
 function createId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function cloneStudySet(studySet: StudySet): StudySet {
+  return JSON.parse(JSON.stringify(studySet)) as StudySet
 }
 
 function nextOptionLabel(options: QuestionOption[]): string {

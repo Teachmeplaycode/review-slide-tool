@@ -43,6 +43,13 @@ export async function listAttempts(studySetId: string): Promise<Attempt[]> {
   return attempts.sort((a, b) => b.createdAt - a.createdAt)
 }
 
+export async function clearStudySets(): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction(['studySets', 'attempts'], 'readwrite')
+  await Promise.all([tx.objectStore('studySets').clear(), tx.objectStore('attempts').clear()])
+  await tx.done
+}
+
 async function getDb(): Promise<IDBPDatabase<ReviewDb>> {
   dbPromise ??= openDB<ReviewDb>('review-slide-tool', 1, {
     upgrade(db) {

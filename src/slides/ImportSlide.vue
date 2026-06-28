@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, BookOpen, Database, RotateCcw } from 'lucide-vue-next'
+import { ArrowRight, BookOpen, Database, RotateCcw, Trash2 } from 'lucide-vue-next'
 import FileDrop from '../components/FileDrop.vue'
 import { useReviewStore } from '../stores/review'
 
@@ -46,15 +46,28 @@ A.用户容易参与开发 B.缺乏灵活性
         </button>
 
         <div class="recent-list" data-allow-scroll="true">
-          <header>
-            <Database :size="16" />
-            最近题库
+          <header class="recent-list__header">
+            <span>
+              <Database :size="16" />
+              最近题库
+            </span>
+            <button
+              v-if="store.recentSets.length"
+              class="recent-list__clear"
+              type="button"
+              title="清空最近题库"
+              @click.stop="store.clearRecentSets"
+            >
+              <Trash2 :size="13" />
+              清空
+            </button>
           </header>
           <button
             v-for="studySet in store.recentSets.slice(0, 5)"
             :key="studySet.id"
             type="button"
-            @click="store.loadStudySet(studySet)"
+            class="recent-list__item"
+            @click.stop="store.loadStudySet(studySet)"
           >
             <BookOpen :size="15" />
             <span>{{ studySet.title }}</span>
