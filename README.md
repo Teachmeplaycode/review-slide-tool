@@ -13,6 +13,13 @@
 
 ## Stack
 
+<p align="center">
+  <img src="assets/Vue.png" alt="Vue" width="120" />
+  <img src="assets/TypeScript.png" alt="TypeScript" width="120" />
+  <img src="assets/Vite.png" alt="Vite" width="120" />
+  <img src="assets/GSAP.png" alt="GSAP" width="120" />
+</p>
+
 - Vue 3
 - TypeScript
 - Vite
