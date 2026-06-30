@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, BookOpen, CheckCircle2, Database, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
+import { ArrowRight, BookOpen, Database, Settings } from 'lucide-vue-next'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useVocabStore } from '../stores/vocab'
 
@@ -17,33 +17,25 @@ const masteryLabel = computed(() => {
 </script>
 
 <template>
-  <section class="slide surface-cold">
-    <div class="slide-inner vocab-library">
-      <aside class="vocab-side">
+  <section class="slide surface-cold home-stage">
+    <div class="slide-inner home-intro">
+      <div class="home-intro__copy">
         <span class="section-label">Vocabulary Library</span>
         <TypewriterText as="h1" text="英语基础词库" :active="active" :duration="0.72" />
         <TypewriterText
           as="p"
-          text="从本地 SQLite 读取词库，支持新增、编辑、禁用单词，并记录每次训练后的熟练度。"
+          text="从本地 SQLite 读取词库，记录熟练度、错词和训练结果。编辑词库、导入、DeepSeek API 和音标生成统一放在右上角齿轮设置里。"
           :active="active"
           :delay="0.12"
           :duration="0.72"
         />
 
-        <div class="vocab-book-list" data-allow-scroll="true">
-          <button
-            v-for="book in store.books"
-            :key="book.id"
-            type="button"
-            :class="{ active: book.id === store.selectedBookId }"
-            @click="store.selectBook(book.id)"
-          >
-            <BookOpen :size="18" />
-            <span>
-              <strong>{{ book.name }}</strong>
-              <small>{{ book.description }}</small>
-            </span>
-          </button>
+        <div class="home-intro__book">
+          <BookOpen :size="18" />
+          <div>
+            <strong>{{ store.selectedBook?.name ?? '还没有词库' }}</strong>
+            <span>{{ store.selectedBook?.description || '点击右上角齿轮，新建或导入一个词库。' }}</span>
+          </div>
         </div>
 
         <dl class="vocab-stats">
@@ -61,93 +53,23 @@ const masteryLabel = computed(() => {
           </div>
         </dl>
 
-        <button class="btn-dark wide" type="button" :disabled="!store.selectedBookId" @click="store.unlockTo(1)">
-          <ArrowRight :size="18" /> 进入学习设置
-        </button>
-      </aside>
-
-      <div class="vocab-workspace">
-        <header class="vocab-toolbar">
-          <label class="search-box">
-            <Search :size="16" />
-            <input
-              :value="store.wordQuery"
-              type="search"
-              placeholder="搜索英文、中文释义或标签"
-              @input="store.searchWords(($event.target as HTMLInputElement).value)"
-            />
-          </label>
-          <span>
-            <Database :size="16" />
-            {{ store.wordTotal }} 个结果
-          </span>
-        </header>
-
-        <form class="word-form" @submit.prevent="store.saveWordDraft">
-          <div class="word-form__head">
-            <strong>{{ store.editingWordId ? '编辑单词' : '新增单词' }}</strong>
-            <button v-if="store.editingWordId" class="mini-command" type="button" @click="store.resetWordDraft">
-              <X :size="14" /> 取消编辑
-            </button>
-          </div>
-
-          <div class="word-form__grid">
-            <input v-model="store.wordDraft.word" required placeholder="英文单词" />
-            <input v-model="store.wordDraft.phonetic" placeholder="音标" />
-            <input v-model="store.wordDraft.partOfSpeech" placeholder="词性，如 n./v." />
-            <input v-model="store.wordDraft.meaningZh" required placeholder="中文释义" />
-            <input v-model="store.wordDraft.exampleEn" placeholder="英文例句" />
-            <input v-model="store.wordDraft.exampleZh" placeholder="中文例句" />
-            <input v-model="store.wordDraft.tags" placeholder="标签，如 basic,study" />
-            <select v-model.number="store.wordDraft.difficulty">
-              <option :value="1">难度 1</option>
-              <option :value="2">难度 2</option>
-              <option :value="3">难度 3</option>
-              <option :value="4">难度 4</option>
-              <option :value="5">难度 5</option>
-            </select>
-          </div>
-
-          <button
-            class="btn-dark"
-            type="submit"
-            :disabled="store.savingWord || !store.wordDraft.word.trim() || !store.wordDraft.meaningZh.trim()"
-          >
-            <Plus :size="16" /> {{ store.editingWordId ? '保存修改' : '添加到词库' }}
+        <div class="home-intro__actions">
+          <button class="btn-dark" type="button" :disabled="!store.selectedBookId" @click="store.unlockTo(1)">
+            <ArrowRight :size="18" /> 进入学习设置
           </button>
-        </form>
-
-        <p v-if="store.error" class="error-line">{{ store.error }}</p>
-
-        <div class="word-table" data-allow-scroll="true">
-          <article v-for="word in store.words" :key="word.id" class="word-row">
-            <div class="word-row__main">
-              <strong>{{ word.word }}</strong>
-              <span>{{ word.phonetic || '暂无音标' }}</span>
-              <small>{{ word.partOfSpeech }} {{ word.meaningZh }}</small>
-            </div>
-            <div class="word-row__meta">
-              <span>
-                <CheckCircle2 :size="14" />
-                熟练度 {{ word.progress.mastery }}/5
-              </span>
-              <span>难度 {{ word.difficulty }}</span>
-            </div>
-            <div class="word-row__actions">
-              <button class="icon-command" type="button" title="编辑" @click="store.editWord(word)">
-                <Pencil :size="15" />
-              </button>
-              <button class="icon-command danger" type="button" title="禁用" @click="store.removeWord(word.id)">
-                <Trash2 :size="15" />
-              </button>
-            </div>
-          </article>
-
-          <div v-if="!store.words.length" class="empty-state">
-            <p>当前没有匹配单词。</p>
-          </div>
+          <span>
+            <Settings :size="15" />
+            右上角设置可管理词库和 API
+          </span>
         </div>
       </div>
+
+      <aside class="home-intro__panel">
+        <Database :size="24" />
+        <strong>{{ store.wordTotal }} 个当前结果</strong>
+        <p v-if="store.selectedBookId">准备好后进入学习设置，选择数量、训练模式和复习范围。</p>
+        <p v-else>当前没有可学习词库。请先打开右上角齿轮完成新建或导入。</p>
+      </aside>
     </div>
   </section>
 </template>

@@ -19,6 +19,70 @@ export function listBooks(db) {
   `).all().map(mapBook)
 }
 
+export function createBook(db, input = {}) {
+  const name = stringValue(input.name).trim()
+  const description = stringValue(input.description).trim()
+  const language = stringValue(input.language, 'en').trim() || 'en'
+
+  if (!name) {
+    throw createHttpError(400, '词库名称不能为空')
+  }
+
+  const now = Date.now()
+  const id = createId('book')
+
+  db.prepare(`
+    INSERT INTO word_books (id, name, description, language, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, name, description, language, now, now)
+
+  return getBookById(db, id)
+}
+
+export function getBookById(db, bookId) {
+  const row = db.prepare(`
+    SELECT
+      b.*,
+      COUNT(w.id) AS word_count,
+      COUNT(CASE WHEN p.attempts > 0 THEN 1 END) AS learned_count,
+      COUNT(CASE WHEN p.word_id IS NOT NULL AND (p.last_correct = 0 OR p.mastery < 3) THEN 1 END) AS review_count
+    FROM word_books b
+    LEFT JOIN words w ON w.book_id = b.id AND w.enabled = 1
+    LEFT JOIN word_progress p ON p.word_id = w.id
+    WHERE b.id = ?
+    GROUP BY b.id
+  `).get(bookId)
+
+  return row ? mapBook(row) : null
+}
+
+export function updateBook(db, bookId, input = {}) {
+  const current = db.prepare('SELECT * FROM word_books WHERE id = ?').get(bookId)
+  if (!current) return null
+
+  const name = stringValue(input.name, current.name).trim()
+  const description = stringValue(input.description, current.description).trim()
+
+  if (!name) {
+    throw createHttpError(400, '词库名称不能为空')
+  }
+
+  db.prepare(`
+    UPDATE word_books
+    SET name = ?,
+      description = ?,
+      updated_at = ?
+    WHERE id = ?
+  `).run(name, description, Date.now(), bookId)
+
+  return getBookById(db, bookId)
+}
+
+export function deleteBook(db, bookId) {
+  const result = db.prepare('DELETE FROM word_books WHERE id = ?').run(bookId)
+  return result.changes > 0
+}
+
 export function listWords(db, bookId, options = {}) {
   const limit = clampNumber(options.limit ?? 50, 1, 200)
   const offset = Math.max(0, Number(options.offset ?? 0) || 0)
@@ -54,6 +118,52 @@ export function listWords(db, bookId, options = {}) {
   `).get(params).total
 
   return { words: rows.map(mapWord), total, limit, offset }
+}
+
+export function exportBook(db, bookId) {
+  const book = getBookById(db, bookId)
+  if (!book) throw createHttpError(404, '词库不存在')
+
+  const rows = db.prepare(`
+    SELECT
+      w.*,
+      p.attempts,
+      p.correct_count,
+      p.wrong_count,
+      p.mastery,
+      p.last_correct,
+      p.last_answer,
+      p.last_studied_at,
+      p.updated_at AS progress_updated_at
+    FROM words w
+    LEFT JOIN word_progress p ON p.word_id = w.id
+    WHERE w.book_id = ?
+      AND w.enabled = 1
+    ORDER BY LOWER(w.word)
+  `).all(bookId)
+
+  const words = rows.map(mapWord).map((word) => ({
+    word: word.word,
+    phonetic: word.phonetic,
+    partOfSpeech: word.partOfSpeech,
+    meaningZh: word.meaningZh,
+    exampleEn: word.exampleEn,
+    exampleZh: word.exampleZh,
+    tags: word.tags,
+    difficulty: word.difficulty,
+  }))
+
+  return {
+    book: {
+      id: book.id,
+      name: book.name,
+      description: book.description,
+      language: book.language,
+    },
+    exportedAt: Date.now(),
+    wordCount: words.length,
+    words,
+  }
 }
 
 export function createWord(db, bookId, input) {
@@ -148,10 +258,90 @@ export function disableWord(db, wordId) {
   return result.changes > 0
 }
 
+export function listWordsMissingPhonetics(db, bookId, limit = 80) {
+  const book = db.prepare('SELECT id FROM word_books WHERE id = ?').get(bookId)
+  if (!book) throw createHttpError(404, '词库不存在')
+
+  const rows = db.prepare(`
+    SELECT
+      w.*,
+      p.attempts,
+      p.correct_count,
+      p.wrong_count,
+      p.mastery,
+      p.last_correct,
+      p.last_answer,
+      p.last_studied_at,
+      p.updated_at AS progress_updated_at
+    FROM words w
+    LEFT JOIN word_progress p ON p.word_id = w.id
+    WHERE w.book_id = ?
+      AND w.enabled = 1
+      AND TRIM(w.phonetic) = ''
+    ORDER BY LOWER(w.word)
+    LIMIT ?
+  `).all(bookId, clampNumber(limit, 1, 120))
+
+  return rows.map(mapWord)
+}
+
+export function countWordsMissingPhonetics(db, bookId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM words
+    WHERE book_id = ?
+      AND enabled = 1
+      AND TRIM(phonetic) = ''
+  `).get(bookId)
+
+  return row?.total ?? 0
+}
+
+export function applyGeneratedPhonetics(db, bookId, phonetics = []) {
+  const entries = normalizePhoneticEntries(phonetics)
+  if (!entries.length) {
+    return { updatedCount: 0, skippedCount: 0, words: [] }
+  }
+
+  const updatedWords = []
+  let skippedCount = 0
+  const now = Date.now()
+  const update = db.prepare(`
+    UPDATE words
+    SET phonetic = ?,
+      updated_at = ?
+    WHERE id = ?
+      AND book_id = ?
+      AND enabled = 1
+      AND TRIM(phonetic) = ''
+  `)
+
+  const tx = db.transaction(() => {
+    for (const entry of entries) {
+      const result = update.run(entry.phonetic, now, entry.wordId, bookId)
+      if (!result.changes) {
+        skippedCount += 1
+        continue
+      }
+
+      const word = getWordById(db, entry.wordId)
+      if (word) updatedWords.push(word)
+    }
+  })
+
+  tx()
+
+  return {
+    updatedCount: updatedWords.length,
+    skippedCount,
+    words: updatedWords,
+  }
+}
+
 export function startStudySession(db, input) {
   const bookId = stringValue(input.bookId, BASIC_BOOK_ID)
   const mode = STUDY_MODES.has(input.mode) ? input.mode : 'mixed'
-  const count = clampNumber(input.count ?? 10, 1, 50)
+  const requestedCount = normalizeStudyCount(input.count)
   const reviewOnly = Boolean(input.reviewOnly)
 
   const book = db.prepare('SELECT id FROM word_books WHERE id = ?').get(bookId)
@@ -162,7 +352,7 @@ export function startStudySession(db, input) {
     throw createHttpError(400, reviewOnly ? '当前没有需要复习的错词' : '当前词库没有可学习单词')
   }
 
-  const picked = shuffle(pool).slice(0, Math.min(count, pool.length))
+  const picked = shuffle(pool).slice(0, Math.min(requestedCount, pool.length))
   const allWords = db.prepare('SELECT id, meaning_zh FROM words WHERE book_id = ? AND enabled = 1').all(bookId)
   const items = picked.map((word, index) => buildStudyItem(word, resolveItemMode(mode, index), allWords))
   const now = Date.now()
@@ -478,6 +668,21 @@ function normalizeWordInput(input) {
   }
 }
 
+function normalizePhoneticEntries(entries) {
+  const seen = new Set()
+  const normalized = []
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const wordId = stringValue(entry.wordId ?? entry.id).trim()
+    const phonetic = stringValue(entry.phonetic).trim()
+    if (!wordId || !phonetic || seen.has(wordId)) continue
+    seen.add(wordId)
+    normalized.push({ wordId, phonetic })
+  }
+
+  return normalized
+}
+
 function stringValue(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value)
 }
@@ -494,6 +699,12 @@ function clampNumber(value, min, max) {
   const number = Number(value)
   if (!Number.isFinite(number)) return min
   return Math.max(min, Math.min(max, Math.round(number)))
+}
+
+function normalizeStudyCount(value) {
+  const number = Number(value ?? 10)
+  if (!Number.isFinite(number)) return 10
+  return Math.max(1, Math.round(number))
 }
 
 function shuffle(items) {
