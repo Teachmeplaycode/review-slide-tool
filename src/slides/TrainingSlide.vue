@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowLeft, ArrowRight, CheckCircle2, Send, XCircle } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, CheckCircle2, Send, Sparkles, XCircle } from 'lucide-vue-next'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useVocabStore } from '../stores/vocab'
 
@@ -15,7 +15,42 @@ const progressText = computed(() => {
   if (!store.studyItems.length) return '0 / 0'
   return `${store.activeItemIndex + 1} / ${store.studyItems.length}`
 })
-const nextLabel = computed(() => (store.activeItemIndex >= store.studyItems.length - 1 ? '查看复盘' : '下一词'))
+const nextLabel = computed(() => (store.activeItemIndex >= store.studyItems.length - 1 ? '查看复盘' : '下一题'))
+const canSubmitCurrent = computed(() => {
+  if (!item.value || result.value || store.studying) return false
+  if (item.value.mode === 'spelling') return true
+  return Boolean(store.currentAnswer.trim())
+})
+const answeredItemIds = computed(() => new Set(store.answerResults.map((answer) => answer.item.id)))
+const answerNavEntries = computed(() => {
+  const total = store.studyItems.length
+  if (total <= 120) {
+    return Array.from({ length: total }, (_, index) => ({ type: 'item' as const, index, key: `item-${index}` }))
+  }
+
+  const indexes = new Set<number>()
+  const active = store.activeItemIndex
+
+  for (let index = 0; index < Math.min(3, total); index += 1) indexes.add(index)
+  for (let index = Math.max(0, active - 4); index <= Math.min(total - 1, active + 4); index += 1) indexes.add(index)
+  for (let index = Math.max(0, total - 3); index < total; index += 1) indexes.add(index)
+
+  const sorted = [...indexes].sort((left, right) => left - right)
+  return sorted.flatMap((index, position) => {
+    const previous = sorted[position - 1]
+    const entries = []
+    if (position > 0 && index - previous > 1) {
+      entries.push({ type: 'gap' as const, key: `gap-${previous}-${index}` })
+    }
+    entries.push({ type: 'item' as const, index, key: `item-${index}` })
+    return entries
+  })
+})
+
+function isAnswered(index: number) {
+  const studyItem = store.studyItems[index]
+  return Boolean(studyItem && answeredItemIds.value.has(studyItem.id))
+}
 </script>
 
 <template>
@@ -33,18 +68,20 @@ const nextLabel = computed(() => (store.activeItemIndex >= store.studyItems.leng
         />
 
         <div class="answer-map" data-allow-scroll="true">
-          <button
-            v-for="(studyItem, index) in store.studyItems"
-            :key="studyItem.id"
-            type="button"
-            :class="{
-              active: index === store.activeItemIndex,
-              done: store.answerResults.some((answer) => answer.item.id === studyItem.id),
-            }"
-            @click="store.setActiveItem(index)"
-          >
-            {{ index + 1 }}
-          </button>
+          <template v-for="entry in answerNavEntries" :key="entry.key">
+            <span v-if="entry.type === 'gap'" class="answer-map__gap">...</span>
+            <button
+              v-else
+              type="button"
+              :class="{
+                active: entry.index === store.activeItemIndex,
+                done: isAnswered(entry.index),
+              }"
+              @click="store.setActiveItem(entry.index)"
+            >
+              {{ entry.index + 1 }}
+            </button>
+          </template>
         </div>
 
         <button class="btn-outline" type="button" @click="store.goTo(1)">
@@ -103,22 +140,38 @@ const nextLabel = computed(() => (store.activeItemIndex >= store.studyItems.leng
               {{ item.word.exampleEn }}
               <span>{{ item.word.exampleZh }}</span>
             </blockquote>
+            <div v-if="store.explanationsLoading || store.explanationForItem(item.id)" class="ai-explanation">
+              <strong><Sparkles :size="14" /> AI 简析</strong>
+              <p v-if="store.explanationForItem(item.id)">{{ store.explanationForItem(item.id) }}</p>
+              <p v-else>正在生成简短解析...</p>
+            </div>
             <small>当前熟练度 {{ result.progress.mastery }}/5，累计 {{ result.progress.attempts }} 次。</small>
           </div>
 
           <p v-if="store.error" class="error-line">{{ store.error }}</p>
+          <p v-if="store.explanationsError" class="error-line">{{ store.explanationsError }}</p>
 
           <footer class="quiz-actions">
+            <div class="quiz-actions__pager">
+              <button
+                class="btn-outline"
+                type="button"
+                :disabled="store.activeItemIndex <= 0"
+                @click="store.setActiveItem(store.activeItemIndex - 1)"
+              >
+                <ArrowLeft :size="16" /> 上一题
+              </button>
+              <button class="btn-outline" type="button" :disabled="!result" @click="store.nextItem">
+                {{ nextLabel }} <ArrowRight :size="16" />
+              </button>
+            </div>
             <button
-              class="btn-dark"
+              class="btn-dark quiz-actions__submit"
               type="button"
-              :disabled="Boolean(result) || store.studying || !store.currentAnswer.trim()"
+              :disabled="!canSubmitCurrent"
               @click="store.submitCurrentAnswer"
             >
               <Send :size="16" /> 提交答案
-            </button>
-            <button class="btn-outline" type="button" :disabled="!result" @click="store.nextItem">
-              {{ nextLabel }} <ArrowRight :size="16" />
             </button>
           </footer>
         </article>

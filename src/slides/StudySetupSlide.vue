@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { BookMarked, ListChecks, Play, Shuffle, SpellCheck, Target } from 'lucide-vue-next'
-import AiSettingsPanel from '../components/AiSettingsPanel.vue'
-import VocabImportPanel from '../components/VocabImportPanel.vue'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useVocabStore } from '../stores/vocab'
 import type { StudyMode } from '../types'
@@ -119,9 +117,6 @@ function updateCount(event: Event) {
         <button class="btn-dark wide" type="button" :disabled="!store.canStart" @click="store.startStudySession()">
           <Play :size="18" /> 开始背词
         </button>
-
-        <AiSettingsPanel />
-        <VocabImportPanel />
       </div>
     </div>
   </section>

@@ -190,6 +190,12 @@ export type StudyAnswerResult = {
   progress: WordProgress
 }
 
+export type StudyExplanation = {
+  itemId: string
+  wordId: string
+  explanation: string
+}
+
 export type StudyOverview = {
   bookId: string
   totalWords: number
@@ -206,6 +212,7 @@ export type AiSettings = {
   baseUrl: string
   model: string
   enabled: boolean
+  reviewEnabled: boolean
   hasApiKey: boolean
   apiKeyPreview: string
   createdAt?: number
@@ -217,6 +224,7 @@ export type AiSettingsDraft = {
   baseUrl: string
   model: string
   enabled: boolean
+  reviewEnabled: boolean
 }
 
 export type ImportTargetMode = 'new_book' | 'merge_current'
@@ -246,4 +254,11 @@ export type VocabImportResult = {
   usedAi: boolean
   targetMode: ImportTargetMode
   previewWords: WordDraft[]
+}
+
+export type VocabBookExport = {
+  book: Pick<WordBook, 'id' | 'name' | 'description' | 'language'>
+  exportedAt: number
+  wordCount: number
+  words: WordDraft[]
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { FileText, Loader2, UploadCloud } from 'lucide-vue-next'
 import { useAiSettingsStore } from '../stores/aiSettings'
 import { useVocabImportStore } from '../stores/vocabImport'
@@ -10,11 +10,21 @@ const importer = useVocabImportStore()
 const aiSettings = useAiSettingsStore()
 
 const aiStatus = computed(() => (aiSettings.enabled ? 'DeepSeek 处理' : '本地规则解析'))
+const importBusy = computed(() => importer.importing || vocab.generatingPhonetics)
+const importButtonLabel = computed(() => {
+  if (importer.importing) return aiSettings.enabled ? 'DeepSeek 正在整理' : '正在导入'
+  if (vocab.generatingPhonetics) return '正在补全音标'
+  return '开始导入'
+})
 
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   importer.setFile(input.files?.[0] ?? null)
 }
+
+onMounted(() => {
+  void aiSettings.load()
+})
 
 async function runImport() {
   const result = await importer.runImport(vocab.selectedBookId)
@@ -24,6 +34,10 @@ async function runImport() {
     await vocab.selectBook(result.book.id)
   } else {
     await vocab.refreshSelectedBookData()
+  }
+
+  if (result.usedAi) {
+    await vocab.generateMissingPhonetics({ bookId: result.book.id, auto: true })
   }
 }
 </script>
@@ -44,7 +58,7 @@ async function runImport() {
         :class="{ active: importer.targetMode === 'new_book' }"
         @click="importer.targetMode = 'new_book'"
       >
-        新建词库
+        导入为独立词库
       </button>
       <button
         type="button"
@@ -71,13 +85,14 @@ async function runImport() {
       <span>{{ importer.fileName || '选择 txt、markdown、docx 或 doc 文件' }}</span>
     </label>
 
-    <button class="btn-outline" type="button" :disabled="!importer.canImport" @click="runImport">
-      <Loader2 v-if="importer.importing" :size="16" class="spin" />
+    <button class="btn-outline" type="button" :disabled="!importer.canImport || vocab.generatingPhonetics" @click="runImport">
+      <Loader2 v-if="importBusy" :size="16" class="spin" />
       <UploadCloud v-else :size="16" />
-      {{ importer.importing ? '正在导入' : '开始导入' }}
+      {{ importButtonLabel }}
     </button>
 
     <p v-if="importer.error" class="error-line">{{ importer.error }}</p>
+    <p v-if="vocab.generatingPhonetics || vocab.phoneticStatus" class="status-line">{{ vocab.phoneticStatus }}</p>
 
     <div v-if="importer.result" class="import-result">
       <strong>导入完成：{{ importer.result.book.name }}</strong>

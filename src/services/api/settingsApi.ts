@@ -21,3 +21,10 @@ export async function saveAiSettings(draft: SaveAiSettingsPayload): Promise<AiSe
   })
   return payload.settings
 }
+
+export async function clearAiApiKey(): Promise<AiSettings> {
+  const payload = await requestJson<SettingsResponse>('/api/settings/ai/key', {
+    method: 'DELETE',
+  })
+  return payload.settings
+}

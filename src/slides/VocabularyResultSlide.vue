@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookOpen, CheckCircle2, RotateCcw, Shuffle, Target, Upload, XCircle } from 'lucide-vue-next'
+import { BookOpen, CheckCircle2, RotateCcw, Shuffle, Sparkles, Target, Upload, XCircle } from 'lucide-vue-next'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useVocabStore } from '../stores/vocab'
 
@@ -85,6 +85,10 @@ const scoreTitle = computed(() => `本轮正确率 ${store.accuracy}%`)
             {{ result.word.exampleEn }}
             <span>{{ result.word.exampleZh }}</span>
           </blockquote>
+          <div v-if="store.explanationForItem(result.item.id)" class="ai-explanation compact">
+            <strong><Sparkles :size="14" /> AI 简析</strong>
+            <p>{{ store.explanationForItem(result.item.id) }}</p>
+          </div>
         </article>
 
         <div v-if="!store.answerResults.length" class="empty-state">

@@ -3,6 +3,7 @@ export const DEFAULT_AI_SETTINGS = {
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   enabled: false,
+  reviewEnabled: false,
 }
 
 const SETTINGS_ID = 'ai_deepseek'
@@ -26,6 +27,7 @@ export function getAiSettings(db, { includeSecret = false } = {}) {
     baseUrl: row.base_url || DEFAULT_AI_SETTINGS.baseUrl,
     model: row.model || DEFAULT_AI_SETTINGS.model,
     enabled: Boolean(row.enabled) && Boolean(apiKey),
+    reviewEnabled: Boolean(row.review_enabled) && Boolean(apiKey),
     hasApiKey: Boolean(apiKey),
     apiKeyPreview: maskApiKey(apiKey),
     apiKey: includeSecret ? apiKey : undefined,
@@ -41,6 +43,20 @@ export function getActiveAiSettings(db) {
   return settings
 }
 
+export function getStudyAiSettings(db) {
+  const settings = getAiSettings(db, { includeSecret: true })
+  if (settings.provider !== DEFAULT_AI_SETTINGS.provider) return null
+  if (!settings.reviewEnabled || !settings.apiKey) return null
+  return settings
+}
+
+export function getAiSettingsWithKey(db) {
+  const settings = getAiSettings(db, { includeSecret: true })
+  if (settings.provider !== DEFAULT_AI_SETTINGS.provider) return null
+  if (!settings.apiKey) return null
+  return settings
+}
+
 export function saveAiSettings(db, input = {}) {
   const current = getAiSettings(db, { includeSecret: true })
   const provider = DEFAULT_AI_SETTINGS.provider
@@ -50,21 +66,23 @@ export function saveAiSettings(db, input = {}) {
     ? stringValue(input.apiKey).trim()
     : current.apiKey
   const enabled = Boolean(input.enabled)
+  const reviewEnabled = Boolean(input.reviewEnabled)
 
-  if (enabled && !nextKey) {
+  if ((enabled || reviewEnabled) && !nextKey) {
     throw createHttpError(400, '启用 DeepSeek 前需要填写 API Key')
   }
 
   const now = Date.now()
 
   db.prepare(`
-    INSERT INTO api_settings (id, provider, api_key, base_url, model, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO api_settings (id, provider, api_key, base_url, model, enabled, review_enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider) DO UPDATE SET
       api_key = excluded.api_key,
       base_url = excluded.base_url,
       model = excluded.model,
       enabled = excluded.enabled,
+      review_enabled = excluded.review_enabled,
       updated_at = excluded.updated_at
   `).run(
     SETTINGS_ID,
@@ -73,11 +91,23 @@ export function saveAiSettings(db, input = {}) {
     baseUrl || DEFAULT_AI_SETTINGS.baseUrl,
     model || DEFAULT_AI_SETTINGS.model,
     enabled ? 1 : 0,
+    reviewEnabled ? 1 : 0,
     now,
     now,
   )
 
   return getAiSettings(db)
+}
+
+export function clearAiApiKey(db) {
+  const current = getAiSettings(db, { includeSecret: true })
+  return saveAiSettings(db, {
+    baseUrl: current.baseUrl || DEFAULT_AI_SETTINGS.baseUrl,
+    model: current.model || DEFAULT_AI_SETTINGS.model,
+    apiKey: '',
+    enabled: false,
+    reviewEnabled: false,
+  })
 }
 
 function maskApiKey(apiKey) {

@@ -1,9 +1,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchAiSettings, saveAiSettings } from '../services/api/settingsApi'
+import { clearAiApiKey, fetchAiSettings, saveAiSettings } from '../services/api/settingsApi'
 import { useAiSettingsStore } from './aiSettings'
 
 vi.mock('../services/api/settingsApi', () => ({
+  clearAiApiKey: vi.fn(),
   fetchAiSettings: vi.fn(),
   saveAiSettings: vi.fn(),
 }))
@@ -17,6 +18,7 @@ describe('ai settings store', () => {
       baseUrl: 'https://api.deepseek.com',
       model: 'deepseek-chat',
       enabled: true,
+      reviewEnabled: true,
       hasApiKey: true,
       apiKeyPreview: 'sk-a****1234',
     })
@@ -25,8 +27,18 @@ describe('ai settings store', () => {
       baseUrl: 'https://api.deepseek.com',
       model: 'deepseek-chat',
       enabled: true,
+      reviewEnabled: true,
       hasApiKey: true,
       apiKeyPreview: 'sk-a****1234',
+    })
+    vi.mocked(clearAiApiKey).mockResolvedValue({
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      enabled: false,
+      reviewEnabled: false,
+      hasApiKey: false,
+      apiKeyPreview: '',
     })
   })
 
@@ -37,7 +49,7 @@ describe('ai settings store', () => {
 
     expect(store.enabled).toBe(true)
     expect(store.draft.apiKey).toBe('')
-    expect(store.statusLabel).toBe('DeepSeek 已启用')
+    expect(store.statusLabel).toBe('导入和解析均已启用')
   })
 
   it('does not send an empty apiKey when saving an existing key', async () => {
@@ -51,6 +63,19 @@ describe('ai settings store', () => {
       baseUrl: 'https://api.deepseek.com',
       model: 'deepseek-chat',
       enabled: true,
+      reviewEnabled: true,
     })
+  })
+
+  it('clears the saved API key and disables AI features', async () => {
+    const store = useAiSettingsStore()
+    await store.load()
+
+    await store.clearKey()
+
+    expect(clearAiApiKey).toHaveBeenCalled()
+    expect(store.settings?.hasApiKey).toBe(false)
+    expect(store.draft.enabled).toBe(false)
+    expect(store.draft.reviewEnabled).toBe(false)
   })
 })

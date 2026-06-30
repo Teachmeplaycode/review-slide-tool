@@ -2,22 +2,34 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StudyItem, StudySession, WordBook, WordEntry } from '../types'
 import {
+  createBook,
+  deleteBook,
+  exportBookData,
   fetchBooks,
   fetchOverview,
   fetchWords,
+  generateBookPhonetics,
+  requestStudyExplanations,
   startStudy,
   submitAnswer,
+  updateBook,
 } from '../services/api/vocabApi'
 import { useVocabStore } from './vocab'
 
 vi.mock('../services/api/vocabApi', () => ({
+  createBook: vi.fn(),
   createWord: vi.fn(),
+  deleteBook: vi.fn(),
   disableWord: vi.fn(),
+  exportBookData: vi.fn(),
   fetchBooks: vi.fn(),
   fetchOverview: vi.fn(),
   fetchWords: vi.fn(),
+  generateBookPhonetics: vi.fn(),
+  requestStudyExplanations: vi.fn(),
   startStudy: vi.fn(),
   submitAnswer: vi.fn(),
+  updateBook: vi.fn(),
   updateWord: vi.fn(),
 }))
 
@@ -37,6 +49,40 @@ describe('vocab store', () => {
       wrongCount: 2,
     })
     vi.mocked(fetchWords).mockResolvedValue({ words: [word], total: 1, limit: 80, offset: 0 })
+    vi.mocked(createBook).mockResolvedValue({ ...book, id: 'book_new', name: '新版词库', wordCount: 0 })
+    vi.mocked(updateBook).mockResolvedValue(book)
+    vi.mocked(deleteBook).mockResolvedValue(undefined)
+    vi.mocked(exportBookData).mockResolvedValue({
+      book: {
+        id: book.id,
+        name: book.name,
+        description: book.description,
+        language: book.language,
+      },
+      exportedAt: 1,
+      wordCount: 1,
+      words: [{
+        word: word.word,
+        phonetic: word.phonetic,
+        partOfSpeech: word.partOfSpeech,
+        meaningZh: word.meaningZh,
+        exampleEn: word.exampleEn,
+        exampleZh: word.exampleZh,
+        tags: word.tags,
+        difficulty: word.difficulty,
+      }],
+    })
+    vi.mocked(generateBookPhonetics).mockResolvedValue({
+      requestedCount: 1,
+      updatedCount: 1,
+      skippedCount: 0,
+      remainingCount: 0,
+      words: [word],
+    })
+    vi.mocked(requestStudyExplanations).mockResolvedValue({
+      skipped: false,
+      explanations: [{ itemId: studyItem.id, wordId: studyItem.wordId, explanation: 'ability 表示能力，常接不定式。' }],
+    })
     vi.mocked(startStudy).mockResolvedValue({ session, items: [studyItem] })
     vi.mocked(submitAnswer).mockResolvedValue({
       correct: true,
@@ -74,6 +120,82 @@ describe('vocab store', () => {
     expect(store.slideIndex).toBe(2)
   })
 
+  it('limits AI explanation prefetch payload for large sessions', async () => {
+    const manyItems = Array.from({ length: 80 }, (_, index) => ({
+      ...studyItem,
+      id: `item_${index}`,
+      wordId: `word_${index}`,
+    }))
+    vi.mocked(startStudy).mockResolvedValue({ session: { ...session, totalCount: 80 }, items: manyItems })
+    const store = useVocabStore()
+    await store.init()
+
+    await store.startStudySession({ count: 80 })
+    await vi.waitFor(() => {
+      expect(requestStudyExplanations).toHaveBeenCalled()
+    })
+
+    expect(requestStudyExplanations).toHaveBeenCalledWith(session.id, manyItems.slice(0, 50))
+  })
+
+  it('saves the selected book draft and can generate missing phonetics', async () => {
+    const store = useVocabStore()
+    await store.init()
+
+    store.bookDraft.name = '新版词库'
+    await store.saveBookDraft()
+    await store.generateMissingPhonetics()
+
+    expect(updateBook).toHaveBeenCalledWith(book.id, {
+      name: '新版词库',
+      description: '基础单词',
+    })
+    expect(generateBookPhonetics).toHaveBeenCalledWith(book.id, { limit: 120 })
+    expect(store.phoneticStatus).toBe('已补全 1 个音标，跳过 0 个。')
+  })
+
+  it('keeps generating phonetics until the book has no remaining missing phonetics', async () => {
+    vi.mocked(generateBookPhonetics)
+      .mockResolvedValueOnce({
+        requestedCount: 120,
+        updatedCount: 120,
+        skippedCount: 0,
+        remainingCount: 10,
+        words: [word],
+      })
+      .mockResolvedValueOnce({
+        requestedCount: 10,
+        updatedCount: 10,
+        skippedCount: 0,
+        remainingCount: 0,
+        words: [word],
+      })
+    const store = useVocabStore()
+    await store.init()
+
+    await store.generateMissingPhonetics()
+
+    expect(generateBookPhonetics).toHaveBeenCalledTimes(2)
+    expect(store.phoneticStatus).toBe('已补全 130 个音标，跳过 0 个。')
+  })
+
+  it('creates an empty book and selects it', async () => {
+    vi.mocked(fetchBooks)
+      .mockResolvedValueOnce([book])
+      .mockResolvedValue([{ ...book }, { ...book, id: 'book_new', name: '新版词库', wordCount: 0 }])
+    const store = useVocabStore()
+    await store.init()
+
+    store.newBookDraft.name = '新版词库'
+    await store.createBookDraft()
+
+    expect(createBook).toHaveBeenCalledWith({
+      name: '新版词库',
+      description: '',
+    })
+    expect(store.selectedBookId).toBe('book_new')
+  })
+
   it('submits the current answer and moves to result after the last item', async () => {
     const store = useVocabStore()
     await store.init()
@@ -90,6 +212,21 @@ describe('vocab store', () => {
     })
     expect(store.correctCount).toBe(1)
     expect(store.slideIndex).toBe(3)
+  })
+
+  it('allows submitting an empty spelling answer', async () => {
+    const store = useVocabStore()
+    await store.init()
+    await store.startStudySession()
+
+    store.currentAnswer = ''
+    await store.submitCurrentAnswer()
+
+    expect(submitAnswer).toHaveBeenCalledWith(session.id, {
+      wordId: studyItem.wordId,
+      mode: studyItem.mode,
+      userAnswer: '',
+    })
   })
 })
 
