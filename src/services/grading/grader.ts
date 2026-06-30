@@ -1,4 +1,5 @@
 import type { GradedQuestion, GradeStatus, QuizQuestion, UserAnswer } from '../../types'
+import { isVisualOnlyQuestion } from '../questions/visualQuestion'
 import { jaccardSimilarity, keywordCoverage, normalizeAnswer, splitExpectedAnswer } from './normalize'
 
 export function gradeQuiz(questions: QuizQuestion[], answers: UserAnswer[]): GradedQuestion[] {
@@ -11,6 +12,10 @@ export function gradeQuiz(questions: QuizQuestion[], answers: UserAnswer[]): Gra
 }
 
 export function gradeQuestion(question: QuizQuestion, userAnswer: string | string[]): GradedQuestion {
+  if (isVisualOnlyQuestion(question)) {
+    return gradeVisual(question, userAnswer)
+  }
+
   if (question.type === 'choice' || question.type === 'true_false') {
     return gradeExact(question, userAnswer)
   }
@@ -23,9 +28,21 @@ export function gradeQuestion(question: QuizQuestion, userAnswer: string | strin
 }
 
 export function summarizeScore(results: GradedQuestion[]): number {
-  if (results.length === 0) return 0
-  const score = results.reduce((sum, result) => sum + result.score, 0) / results.length
+  const scorable = results.filter((result) => !isVisualOnlyQuestion(result.question))
+  if (scorable.length === 0) return 0
+  const score = scorable.reduce((sum, result) => sum + result.score, 0) / scorable.length
   return Math.round(score * 100)
+}
+
+function gradeVisual(question: QuizQuestion, userAnswer: string | string[]): GradedQuestion {
+  return {
+    question,
+    userAnswer,
+    expectedAnswer: '',
+    score: 0,
+    status: 'review',
+    detail: '图片题暂不自动评分，请在复盘页自评。',
+  }
 }
 
 function gradeExact(question: QuizQuestion, userAnswer: string | string[]): GradedQuestion {

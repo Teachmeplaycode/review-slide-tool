@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { BookOpen, Play, Shuffle } from 'lucide-vue-next'
+import { BookOpen, Image, Play, Shuffle } from 'lucide-vue-next'
 import { computed } from 'vue'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
 import type { QuestionType, ReviewMode } from '../types'
+import { isVisualOnlyQuestion } from '../services/questions/visualQuestion'
 
 defineProps<{
   active: boolean
@@ -25,6 +26,9 @@ const reviewModeOptions: { label: string; description: string; value: ReviewMode
 ]
 
 const availableCount = computed(() => store.availableQuizQuestions.length)
+const visualAvailableCount = computed(() => store.availableQuizQuestions.filter((question) => isVisualOnlyQuestion(question)).length)
+const onlyVisualQuestions = computed(() => store.enabledQuestions.length > 0 && store.enabledQuestions.every((question) => isVisualOnlyQuestion(question)))
+const hasVisualQuestions = computed(() => visualAvailableCount.value > 0)
 const maxCount = computed(() => Math.max(1, availableCount.value))
 const currentCount = computed(() => Math.min(store.quizConfig.count, maxCount.value))
 const countLabel = computed(() => {
@@ -53,7 +57,7 @@ function updateReviewMode(mode: ReviewMode) {
         <TypewriterText as="h2" text="按这次复习的强度抽题" :active="active" :duration="1.2" />
         <TypewriterText
           as="p"
-          text="默认随机抽题，选择题和判断题直接判分，简答题可随机变成挖空默写。"
+          text="文本题按题型和复盘队列抽取；OCR 框选题直接显示裁剪图，提交后自评。"
           :active="active"
           :delay="0.42"
           :duration="1.35"
@@ -101,7 +105,15 @@ function updateReviewMode(mode: ReviewMode) {
           <p class="setup-hint">当前需复盘 {{ store.reviewQueueCount }} 题；选择“只练错题”时会自动排除已经练对的题。</p>
         </section>
 
-        <section>
+        <section v-if="onlyVisualQuestions" class="visual-setup-note">
+          <header>
+            <Image :size="18" />
+            <strong>图片题</strong>
+          </header>
+          <p>当前题库都是 OCR 框选题，抽题会直接显示用户调整后的裁剪图，不需要题型筛选和挖空设置。</p>
+        </section>
+
+        <section v-else>
           <header>
             <strong>题型</strong>
           </header>
@@ -115,9 +127,10 @@ function updateReviewMode(mode: ReviewMode) {
               <span>{{ type.label }}</span>
             </label>
           </div>
+          <p v-if="hasVisualQuestions" class="setup-hint">图片框选题会保留在抽题池中，不受题型开关影响。</p>
         </section>
 
-        <section>
+        <section v-if="!onlyVisualQuestions">
           <header>
             <strong>挖空默写</strong>
           </header>

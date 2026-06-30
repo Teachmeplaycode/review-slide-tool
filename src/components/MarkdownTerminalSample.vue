@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const source = `1. 瀑布模型的存在问题是（  ）。
+const source = `## 1. 瀑布模型的存在问题是（  ）。
 A. 用户容易参与开发
 B. 缺乏灵活性
 答案：B
-
-### 1. 什么是软件危机？
-软件规模迅速膨胀、开发方式滞后，导致成本、质量和维护问题集中爆发。`
+`
 
 type PreviewLine = {
   kind: 'heading' | 'answer' | 'option' | 'paragraph' | 'blank'
@@ -49,11 +47,6 @@ function tokenClass(line: string): string {
         <span />
         <span />
       </div>
-      <div class="terminal-command">
-        <span>review-lib</span>
-        <strong>$ cat supported-pattern.md</strong>
-      </div>
-      <small>markdown</small>
     </div>
 
     <div class="markdown-sample">
@@ -64,7 +57,6 @@ function tokenClass(line: string): string {
       ><span class="line-number">{{ String(index + 1).padStart(2, '0') }}</span><span :class="tokenClass(line)">{{ line || ' ' }}</span></span></code></pre>
 
       <div class="markdown-preview" aria-label="Markdown 预览">
-        <div class="preview-label">Preview</div>
         <template v-for="(line, index) in previewLines" :key="`${index}-${line.kind}`">
           <h3 v-if="line.kind === 'heading'">{{ line.text }}</h3>
           <p v-else-if="line.kind === 'paragraph'">{{ line.text }}</p>

@@ -5,6 +5,7 @@ import ResultReview from '../components/ResultReview.vue'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
 import type { ResultFilter } from '../types'
+import { isVisualOnlyQuestion } from '../services/questions/visualQuestion'
 
 defineProps<{
   active: boolean
@@ -22,7 +23,12 @@ const filterOptions: { label: string; value: ResultFilter }[] = [
 ]
 
 const wrongCount = computed(() => store.results.filter((result) => result.status !== 'correct').length)
-const scoreTitle = computed(() => `本轮得分 ${store.score}`)
+const autoGradedCount = computed(() => store.results.filter((result) => !isVisualOnlyQuestion(result.question)).length)
+const visualResultCount = computed(() => store.results.filter((result) => isVisualOnlyQuestion(result.question)).length)
+const reviewResultCount = computed(() => store.results.filter((result) => result.status !== 'correct').length)
+const secondaryStatCount = computed(() => (visualResultCount.value ? visualResultCount.value : reviewResultCount.value))
+const secondaryStatLabel = computed(() => (visualResultCount.value ? '图片题' : '需复盘'))
+const scoreTitle = computed(() => (autoGradedCount.value ? `本轮得分 ${store.score}` : '本轮自评'))
 
 watch(
   () => [store.resultFilter, store.results.length],
@@ -57,7 +63,7 @@ async function jumpToWrong() {
         <TypewriterText as="h2" :text="scoreTitle" :active="active" :duration="1.05" />
         <TypewriterText
           as="p"
-          text="每题都保留了你的作答和标准答案。简答题是半自动匹配，低分题建议人工复核。"
+          text="文本题保留作答和标准答案；图片题暂不自动评分，请按掌握情况自评。"
           :active="active"
           :delay="0.4"
           :duration="1.35"
@@ -68,8 +74,8 @@ async function jumpToWrong() {
             <dd>正确</dd>
           </div>
           <div>
-            <dt>{{ store.results.filter((item) => item.status !== 'correct').length }}</dt>
-            <dd>需复盘</dd>
+            <dt>{{ secondaryStatCount }}</dt>
+            <dd>{{ secondaryStatLabel }}</dd>
           </div>
         </dl>
         <button class="btn-dark" type="button" @click="store.restartRandom">
@@ -115,6 +121,8 @@ async function jumpToWrong() {
           :result="result"
           :index="index"
           :show-answer="store.showStandardAnswers"
+          :asset-url="result.question.visual ? store.assetUrls[result.question.visual.assetId] : undefined"
+          @self-assess="store.selfAssessResult"
         />
 
         <div v-if="!store.filteredResults.length" class="empty-filter">

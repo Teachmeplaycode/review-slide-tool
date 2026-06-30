@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1",
     "typecheck": "vue-tsc -b",
     "test": "vitest run",
     "build": "vue-tsc -b && vite build",
@@ -15,6 +16,7 @@
     "idb": "^8.0.3",
     "lucide-vue-next": "^0.577.0",
     "mammoth": "^1.12.0",
+    "onnxruntime-web": "^1.27.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.38"
   },

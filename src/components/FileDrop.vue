@@ -35,9 +35,14 @@ function onDrop(event: DragEvent) {
     @dragleave.prevent="dragging = false"
     @drop.prevent="onDrop"
   >
-    <input type="file" accept=".docx,.md,.markdown,.txt" :disabled="busy" @change="onInput" />
+    <input
+      type="file"
+      accept=".docx,.md,.markdown,.txt,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.ppt,.pptx"
+      :disabled="busy"
+      @change="onInput"
+    />
     <UploadCloud :size="30" aria-hidden="true" />
     <strong>{{ busy ? '正在识别...' : '选择或拖入参考文件' }}</strong>
-    <span><FileText :size="14" /> 支持 docx / markdown / txt</span>
+    <span><FileText :size="14" /> 支持 docx / markdown / txt / pdf / 图片</span>
   </label>
 </template>

@@ -37,6 +37,43 @@ describe('review queue quiz session', () => {
     expect(pool.map((question) => question.id)).toEqual(['q3'])
     expect(countReviewQueue(questions, correctedStats)).toBe(1)
   })
+
+  it('excludes ignored questions from quiz and review pools', () => {
+    const ignoredQuestions = questions.map((question) => (
+      question.id === 'q2'
+        ? { ...question, ignored: true, enabled: false }
+        : question
+    ))
+    const pool = filterQuestionPool(ignoredQuestions, { ...baseConfig, reviewMode: 'mistakes_only' }, reviewStats)
+
+    expect(pool.map((question) => question.id)).toEqual(['q3'])
+    expect(countReviewQueue(ignoredQuestions, reviewStats)).toBe(1)
+  })
+
+  it('keeps visual-only questions in the pool regardless of text type filters', () => {
+    const visualQuestion: ParsedQuestion = {
+      ...makeQuestion('q5', ''),
+      type: 'short',
+      options: [],
+      visual: {
+        source: 'ocr',
+        assetId: 'asset_1',
+        pageNumber: 1,
+        pageWidth: 100,
+        pageHeight: 100,
+        box: { x: 0, y: 0, width: 1, height: 1 },
+        lineIds: [],
+        confidence: 1,
+      },
+    }
+    const pool = filterQuestionPool(
+      [...questions, visualQuestion],
+      { ...baseConfig, types: ['choice'] },
+      [],
+    )
+
+    expect(pool.map((question) => question.id)).toContain('q5')
+  })
 })
 
 const questions: ParsedQuestion[] = [

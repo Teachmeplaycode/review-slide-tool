@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Attempt, GradedQuestion, QuestionReviewStat, StudySet } from '../../types'
+import type { Attempt, GradedQuestion, QuestionReviewStat, StudyAsset, StudySet } from '../../types'
 
 type ReviewDb = DBSchema & {
   studySets: {
@@ -23,6 +23,13 @@ type ReviewDb = DBSchema & {
     indexes: {
       studySetId: string
       updatedAt: number
+    }
+  }
+  assets: {
+    key: string
+    value: StudyAsset
+    indexes: {
+      studySetId: string
     }
   }
 }
@@ -94,19 +101,47 @@ export async function listReviewStats(studySetId: string): Promise<QuestionRevie
   return stats.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
+export async function saveStudyAssets(assets: StudyAsset[]): Promise<void> {
+  if (!assets.length) return
+  const db = await getDb()
+  const tx = db.transaction('assets', 'readwrite')
+  await Promise.all(assets.map((asset) => tx.objectStore('assets').put(asset)))
+  await tx.done
+}
+
+export async function listStudyAssets(studySetId: string): Promise<StudyAsset[]> {
+  const db = await getDb()
+  return db.getAllFromIndex('assets', 'studySetId', studySetId)
+}
+
+export async function deleteStudyAssets(studySetId: string): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('assets', 'readwrite')
+  const index = tx.objectStore('assets').index('studySetId')
+  let cursor = await index.openCursor(studySetId)
+
+  while (cursor) {
+    await cursor.delete()
+    cursor = await cursor.continue()
+  }
+
+  await tx.done
+}
+
 export async function clearStudySets(): Promise<void> {
   const db = await getDb()
-  const tx = db.transaction(['studySets', 'attempts', 'reviewStats'], 'readwrite')
+  const tx = db.transaction(['studySets', 'attempts', 'reviewStats', 'assets'], 'readwrite')
   await Promise.all([
     tx.objectStore('studySets').clear(),
     tx.objectStore('attempts').clear(),
     tx.objectStore('reviewStats').clear(),
+    tx.objectStore('assets').clear(),
   ])
   await tx.done
 }
 
 async function getDb(): Promise<IDBPDatabase<ReviewDb>> {
-  dbPromise ??= openDB<ReviewDb>('review-slide-tool', 2, {
+  dbPromise ??= openDB<ReviewDb>('review-slide-tool', 3, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('studySets')) {
         const studySets = db.createObjectStore('studySets', { keyPath: 'id' })
@@ -123,6 +158,11 @@ async function getDb(): Promise<IDBPDatabase<ReviewDb>> {
         const reviewStats = db.createObjectStore('reviewStats', { keyPath: 'id' })
         reviewStats.createIndex('studySetId', 'studySetId')
         reviewStats.createIndex('updatedAt', 'updatedAt')
+      }
+
+      if (!db.objectStoreNames.contains('assets')) {
+        const assets = db.createObjectStore('assets', { keyPath: 'id' })
+        assets.createIndex('studySetId', 'studySetId')
       }
     },
   })

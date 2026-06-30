@@ -51,4 +51,24 @@ describe('gradeQuestion', () => {
     expect(result.score).toBeGreaterThan(0.45)
     expect(['correct', 'partial']).toContain(result.status)
   })
+
+  it('sends visual-only questions to self assessment instead of automatic grading', () => {
+    const result = gradeQuestion({
+      ...baseQuestion,
+      visual: {
+        source: 'ocr',
+        assetId: 'asset_1',
+        pageNumber: 1,
+        pageWidth: 100,
+        pageHeight: 100,
+        box: { x: 0, y: 0, width: 1, height: 1 },
+        lineIds: [],
+        confidence: 1,
+      },
+    }, '')
+
+    expect(result.status).toBe('review')
+    expect(result.score).toBe(0)
+    expect(result.detail).toContain('自评')
+  })
 })

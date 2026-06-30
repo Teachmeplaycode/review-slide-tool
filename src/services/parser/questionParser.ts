@@ -7,7 +7,7 @@ type Block = {
 }
 
 const ANSWER_PATTERN = /^\s*(?:答案|参考答案|回答|答)\s*[:：]\s*(.+)\s*$/i
-const NUMBERED_PATTERN = /^\s*(?:#{1,6}\s*)?(\d+)[.．、]\s*(.+?)\s*$/
+const NUMBERED_PATTERN = /^\s*(?:#{1,6}\s*)?(?:(?:\d+[.)．。、]?)|(?:[（(]\d+[）)])|[①②③④⑤⑥⑦⑧⑨⑩]|(?:[一二三四五六七八九十]+[、.)．。]))\s*(.+?)\s*$/
 const OPTION_PREFIX_PATTERN = /^\s*([A-Ha-h])\s*[.．、]\s*(.+)\s*$/
 const TRUE_FALSE_PATTERN = /^[√×xX对错正确错误TＦFtf]+$/
 const BLANK_PATTERN = /_{2,}|（\s*）|\(\s*\)|\s{4,}/
@@ -60,7 +60,7 @@ function splitNumberedBlocks(text: string): Block[] {
     if (numbered) {
       if (current) blocks.push(current)
       current = {
-        title: cleanMarkdown(numbered[2]),
+        title: cleanMarkdown(numbered[1]),
         body: [],
         raw: line,
       }

@@ -2,96 +2,70 @@ import { defineStore } from 'pinia'
 import type {
   Attempt,
   GradedQuestion,
+  ImportedText,
+  OcrBox,
   ParsedQuestion,
-  QuestionReviewStat,
   QuestionOption,
   QuestionType,
-  QuizConfig,
-  QuizQuestion,
   ReviewMode,
-  ResultFilter,
   StudySet,
   UserAnswer,
 } from '../types'
 import {
   clearStudySets,
+  deleteStudyAssets,
+  listStudyAssets,
   listReviewStats,
   saveAttempt,
+  saveStudyAssets,
   saveStudySet,
   listStudySets,
   recordReviewStats,
 } from '../services/db/indexedDb'
 import { gradeQuiz, summarizeScore } from '../services/grading/grader'
+import { rescanPageWithBrowserOcr } from '../services/importers/browserOcr'
 import { importStudyFile } from '../services/importers/fileImporter'
-import { parseQuestions } from '../services/parser/questionParser'
-import { buildQuizSession, countReviewQueue, filterQuestionPool } from '../services/quiz/session'
+import { buildQuestionsFromImport, buildQuestionsFromOcrPages } from '../services/importers/importedQuestions'
+import { importedAssetsToStudyAssets } from '../services/importers/ocrVisuals'
+import { createManualVisualQuestion } from '../services/questions/manualVisualQuestion'
+import { isVisualOnlyQuestion } from '../services/questions/visualQuestion'
+import { buildQuizSession } from '../services/quiz/session'
+import {
+  clampBox,
+  cloneStudySet,
+  createId,
+  mergeOcrPages,
+  nextOptionLabel,
+} from './reviewHelpers'
+import * as reviewGetters from './reviewGetters'
+import { createReviewState } from './reviewState'
 
-type ReviewState = {
-  slideIndex: number
-  unlockedIndex: number
-  recentSets: StudySet[]
-  currentSet: StudySet | null
-  reviewStats: QuestionReviewStat[]
-  quizConfig: QuizConfig
-  quizQuestions: QuizQuestion[]
-  activeQuestionIndex: number
-  answers: Record<string, string | string[]>
-  results: GradedQuestion[]
-  resultFilter: ResultFilter
-  showStandardAnswers: boolean
-  importing: boolean
-  error: string
-}
+let ocrPollTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useReviewStore = defineStore('review', {
-  state: (): ReviewState => ({
-    slideIndex: 0,
-    unlockedIndex: 0,
-    recentSets: [],
-    currentSet: null,
-    reviewStats: [],
-    quizConfig: {
-      count: 20,
-      types: ['choice', 'true_false', 'blank', 'short'],
-      enableCloze: true,
-      clozeRatio: 0.3,
-      reviewMode: 'random',
-    },
-    quizQuestions: [],
-    activeQuestionIndex: 0,
-    answers: {},
-    results: [],
-    resultFilter: 'all',
-    showStandardAnswers: false,
-    importing: false,
-    error: '',
-  }),
+  state: createReviewState,
 
   getters: {
     enabledQuestions(state): ParsedQuestion[] {
-      return state.currentSet?.questions.filter((question) => question.enabled) ?? []
+      return reviewGetters.enabledQuestions(state)
     },
     totalAvailable(state): number {
-      return state.currentSet?.questions.filter((question) => question.enabled).length ?? 0
+      return reviewGetters.totalAvailable(state)
     },
     reviewQueueCount(state): number {
-      return countReviewQueue(state.currentSet?.questions ?? [], state.reviewStats)
+      return reviewGetters.reviewQueueCount(state)
     },
     availableQuizQuestions(state): ParsedQuestion[] {
-      return filterQuestionPool(state.currentSet?.questions ?? [], state.quizConfig, state.reviewStats)
+      return reviewGetters.availableQuizQuestions(state)
     },
     answeredCount(state): number {
-      return state.quizQuestions.filter((question) => hasAnswer(state.answers[question.id])).length
+      return reviewGetters.answeredCount(state)
     },
     score(state): number {
-      return summarizeScore(state.results)
+      return reviewGetters.score(state)
     },
     filteredResults(state): GradedQuestion[] {
-      if (state.resultFilter === 'all') return state.results
-      if (state.resultFilter === 'wrong') {
-        return state.results.filter((result) => result.status !== 'correct')
-      }
-      return state.results.filter((result) => result.status === state.resultFilter)
+      return reviewGetters.filteredResults(state)
     },
   },
 
@@ -113,27 +87,53 @@ export const useReviewStore = defineStore('review', {
     async importFile(file: File) {
       this.importing = true
       this.error = ''
+      this.browserOcrDraft = null
+      this.browserOcrMessage = ''
 
       try {
-        const imported = await importStudyFile(file)
-        const questions = parseQuestions(imported.text)
+        const imported = await importStudyFile(file, { textOcrEnabled: this.textOcrEnabled })
+        const questions = buildQuestionsFromImport(imported)
         const now = Date.now()
+        const id = createId('set')
 
         this.currentSet = {
-          id: createId('set'),
+          id,
           title: imported.title,
           sourceFile: imported.sourceFile,
           questions,
+          ocr: imported.ocr
+            ? {
+              enabled: true,
+              mode: imported.ocr.mode,
+              sourceKind: imported.ocr.sourceKind,
+              jobId: imported.ocr.jobId,
+              status: imported.ocr.status,
+              processedPages: imported.ocr.processedPages,
+              totalPages: imported.ocr.totalPages,
+              error: imported.ocr.error,
+              pages: imported.ocr.pages,
+            }
+            : undefined,
           createdAt: now,
           updatedAt: now,
         }
         this.reviewStats = []
+        this.replaceAssetUrls({})
+
+        if (imported.ocr?.assets.length) {
+          await deleteStudyAssets(id)
+          await saveStudyAssets(importedAssetsToStudyAssets(imported.ocr.assets, id, now))
+          await this.loadAssetUrls(id)
+        }
 
         await saveStudySet(this.currentSet)
         this.recentSets = await listStudySets()
         this.quizConfig.reviewMode = 'random'
         this.quizConfig.count = Math.min(20, Math.max(1, questions.length))
         this.unlockTo(1)
+        if (imported.ocr?.jobId && imported.ocr.status === 'processing') {
+          this.startOcrPolling(imported.ocr.jobId)
+        }
       } catch (error) {
         this.error = error instanceof Error ? error.message : '导入失败'
       } finally {
@@ -146,19 +146,24 @@ export const useReviewStore = defineStore('review', {
       this.quizConfig.count = Math.min(20, Math.max(1, studySet.questions.length))
       this.unlockTo(1)
       this.reviewStats = await listReviewStats(studySet.id)
+      await this.loadAssetUrls(studySet.id)
       this.clampQuizCount()
     },
 
     async clearRecentSets() {
       await clearStudySets()
+      this.stopOcrPolling()
       this.recentSets = []
       this.currentSet = null
+      this.replaceAssetUrls({})
       this.reviewStats = []
       this.quizQuestions = []
       this.answers = {}
       this.results = []
       this.resultFilter = 'all'
       this.showStandardAnswers = false
+      this.browserOcrDraft = null
+      this.browserOcrMessage = ''
       this.slideIndex = 0
       this.unlockedIndex = 0
     },
@@ -167,8 +172,76 @@ export const useReviewStore = defineStore('review', {
       const question = this.currentSet?.questions.find((item) => item.id === id)
       if (!question) return
       Object.assign(question, patch)
+      if (patch.enabled !== undefined && patch.enabled) {
+        question.ignored = false
+        question.ocrReviewState = question.ocrReviewState === 'ignored' ? 'needs_review' : question.ocrReviewState
+      }
       question.confidence = Math.max(question.confidence, 0.7)
       this.touchCurrentSet()
+    },
+
+    updateQuestionVisual(id: string, box: OcrBox) {
+      const question = this.currentSet?.questions.find((item) => item.id === id)
+      if (!question?.visual) return
+      question.visual = {
+        ...question.visual,
+        source: 'manual',
+        box: clampBox(box),
+        engine: 'manual',
+      }
+      question.confidence = Math.max(question.confidence, 0.75)
+      question.ocrReviewState = question.ignored ? 'ignored' : 'needs_review'
+      this.touchCurrentSet()
+    },
+
+    addManualQuestionBox(pageNumber: number, box: OcrBox): string {
+      if (!this.currentSet?.ocr) return ''
+      const page = this.currentSet.ocr.pages.find((item) => item.pageNumber === pageNumber)
+      if (!page) return ''
+
+      const questions = this.currentSet.questions
+      const pageQuestions = questions.filter((question) => question.visual?.pageNumber === pageNumber)
+      const id = createId('q_manual')
+      const question = createManualVisualQuestion(id, page, clampBox(box), pageQuestions.length + 1)
+
+      const lastPageQuestionIndex = questions.reduce((lastIndex, item, index) => (
+        item.visual?.pageNumber === pageNumber ? index : lastIndex
+      ), -1)
+      questions.splice(lastPageQuestionIndex + 1 || questions.length, 0, question)
+
+      page.candidateCount = questions.filter((item) => item.visual?.pageNumber === pageNumber && !item.ignored).length
+      page.pageReviewState = 'confirmed'
+      this.touchCurrentSet()
+      this.clampQuizCount()
+      return id
+    },
+
+    setQuestionIgnored(id: string, ignored: boolean) {
+      const question = this.currentSet?.questions.find((item) => item.id === id)
+      if (!question) return
+      question.ignored = ignored
+      question.enabled = !ignored
+      question.ocrReviewState = ignored ? 'ignored' : 'needs_review'
+      this.touchCurrentSet()
+      this.clampQuizCount()
+    },
+
+    setPageIgnored(pageNumber: number, ignored: boolean) {
+      const questions = this.currentSet?.questions.filter((question) => question.visual?.pageNumber === pageNumber)
+      if (!questions?.length) return
+      questions.forEach((question) => {
+        question.ignored = ignored
+        question.enabled = !ignored
+        question.ocrReviewState = ignored ? 'ignored' : 'needs_review'
+      })
+
+      const page = this.currentSet?.ocr?.pages.find((item) => item.pageNumber === pageNumber)
+      if (page) {
+        page.pageReviewState = ignored ? 'ignored' : 'needs_review'
+      }
+
+      this.touchCurrentSet()
+      this.clampQuizCount()
     },
 
     updateOption(questionId: string, optionIndex: number, patch: Partial<QuestionOption>) {
@@ -232,11 +305,204 @@ export const useReviewStore = defineStore('review', {
       this.touchCurrentSet()
     },
 
+    moveQuestion(id: string, targetIndex: number) {
+      const questions = this.currentSet?.questions
+      if (!questions) return
+
+      const fromIndex = questions.findIndex((question) => question.id === id)
+      if (fromIndex < 0) return
+
+      const [question] = questions.splice(fromIndex, 1)
+      const nextIndex = Math.max(0, Math.min(targetIndex, questions.length))
+      questions.splice(nextIndex, 0, question)
+      this.touchCurrentSet()
+    },
+
+    setAllQuestionsEnabled(enabled: boolean) {
+      const questions = this.currentSet?.questions
+      if (!questions) return
+      questions.forEach((question) => {
+        question.enabled = enabled && !question.ignored
+      })
+      this.touchCurrentSet()
+    },
+
+    disableLowConfidence(threshold = 0.65) {
+      const questions = this.currentSet?.questions
+      if (!questions) return
+      questions.forEach((question) => {
+        if (question.confidence < threshold) {
+          question.enabled = false
+          question.ignored = true
+          question.ocrReviewState = 'ignored'
+        }
+      })
+      this.touchCurrentSet()
+    },
+
+    setMissingAnswerType(type: QuestionType) {
+      const questions = this.currentSet?.questions
+      if (!questions) return
+      questions.forEach((question) => {
+        if (!question.answer.trim()) {
+          question.type = type
+          question.confidence = Math.max(question.confidence, 0.7)
+        }
+      })
+      this.touchCurrentSet()
+    },
+
     async saveCurrentSet() {
       if (!this.currentSet) return
       this.currentSet.updatedAt = Date.now()
       await saveStudySet(this.currentSet)
       this.recentSets = await listStudySets()
+    },
+
+    startOcrPolling(jobId: string) {
+      this.stopOcrPolling()
+      this.ocrPolling = true
+
+      const tick = async () => {
+        const done = await this.pollOcrJob(jobId).catch((error: unknown) => {
+          if (this.currentSet?.ocr?.jobId === jobId) {
+            this.currentSet.ocr.status = 'failed'
+            this.currentSet.ocr.error = error instanceof Error ? error.message : 'OCR 轮询失败'
+            this.touchCurrentSet()
+          }
+          return true
+        })
+
+        if (done || this.currentSet?.ocr?.jobId !== jobId) {
+          this.ocrPolling = false
+          ocrPollTimer = null
+          return
+        }
+
+        ocrPollTimer = setTimeout(tick, 1400)
+      }
+
+      ocrPollTimer = setTimeout(tick, 650)
+    },
+
+    stopOcrPolling() {
+      if (ocrPollTimer) {
+        clearTimeout(ocrPollTimer)
+        ocrPollTimer = null
+      }
+      this.ocrPolling = false
+    },
+
+    async pollOcrJob(jobId: string): Promise<boolean> {
+      if (!this.currentSet?.ocr || this.currentSet.ocr.jobId !== jobId) return true
+
+      const afterPage = this.currentSet.ocr.processedPages ?? 0
+      const response = await fetch(`/api/ocr/jobs/${jobId}?afterPage=${afterPage}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: string } | null
+        throw new Error(payload?.detail ?? 'OCR 轮询失败')
+      }
+
+      const imported = await response.json() as ImportedText
+      await this.mergeOcrUpdate(imported)
+      return imported.ocr?.status !== 'processing'
+    },
+
+    async mergeOcrUpdate(imported: ImportedText) {
+      if (!this.currentSet?.ocr || !imported.ocr) return
+
+      const existingPages = this.currentSet.ocr.pages
+      const newlyRecognizedPages = imported.ocr.pages.filter((page) => {
+        if (!page.lines.length) return false
+        const existing = existingPages.find((item) => item.pageNumber === page.pageNumber)
+        return !existing || existing.lines.length === 0
+      })
+
+      this.currentSet.ocr = {
+        ...this.currentSet.ocr,
+        jobId: imported.ocr.jobId ?? this.currentSet.ocr.jobId,
+        status: imported.ocr.status,
+        processedPages: imported.ocr.processedPages,
+        totalPages: imported.ocr.totalPages,
+        error: imported.ocr.error,
+        pages: mergeOcrPages(existingPages, imported.ocr.pages),
+      }
+
+      if (imported.ocr.assets.length) {
+        await saveStudyAssets(importedAssetsToStudyAssets(imported.ocr.assets, this.currentSet.id, Date.now()))
+        await this.loadAssetUrls(this.currentSet.id)
+      }
+
+      if (newlyRecognizedPages.length) {
+        const questions = buildQuestionsFromOcrPages(newlyRecognizedPages, 'ocr')
+        this.currentSet.questions.push(...questions)
+        this.quizConfig.count = Math.min(20, Math.max(1, this.enabledQuestions.length))
+      }
+
+      this.touchCurrentSet()
+      await this.saveCurrentSet()
+    },
+
+    async requestBrowserRescan(pageNumber: number) {
+      if (!this.currentSet?.ocr) return
+      const page = this.currentSet.ocr.pages.find((item) => item.pageNumber === pageNumber)
+      if (!page) return
+      const assetUrl = this.assetUrls[page.assetId]
+      if (!assetUrl) {
+        this.browserOcrMessage = '当前页图像尚未加载，稍后再试。'
+        return
+      }
+
+      this.browserOcrBusy = true
+      this.browserOcrMessage = '正在准备浏览器 OCR 重扫...'
+      this.browserOcrDraft = null
+
+      try {
+        const draft = await rescanPageWithBrowserOcr(page, assetUrl)
+        this.browserOcrDraft = {
+          ...draft,
+          engine: 'browser_onnx',
+          pageReviewState: draft.pageReviewState ?? 'needs_review',
+        }
+        this.browserOcrMessage = `浏览器 OCR 已生成第 ${pageNumber} 页结果，确认后可采用。`
+      } catch (error) {
+        this.browserOcrMessage = error instanceof Error ? error.message : '浏览器 OCR 重扫失败。'
+      } finally {
+        this.browserOcrBusy = false
+      }
+    },
+
+    async adoptBrowserOcrDraft() {
+      if (!this.currentSet?.ocr || !this.browserOcrDraft) return
+      const draft = this.browserOcrDraft
+      this.currentSet.ocr.pages = mergeOcrPages(
+        this.currentSet.ocr.pages.filter((page) => page.pageNumber !== draft.pageNumber),
+        [draft],
+      )
+      this.currentSet.questions = [
+        ...this.currentSet.questions.filter((question) => question.visual?.pageNumber !== draft.pageNumber),
+        ...buildQuestionsFromOcrPages([draft], 'ocr'),
+      ]
+      this.browserOcrDraft = null
+      this.browserOcrMessage = `已采用第 ${draft.pageNumber} 页的浏览器 OCR 结果。`
+      this.quizConfig.count = Math.min(20, Math.max(1, this.enabledQuestions.length))
+      this.touchCurrentSet()
+      await this.saveCurrentSet()
+    },
+
+    async loadAssetUrls(studySetId: string) {
+      const assets = await listStudyAssets(studySetId)
+      const urls = typeof URL.createObjectURL === 'function'
+        ? Object.fromEntries(assets.map((asset) => [asset.id, URL.createObjectURL(asset.blob)]))
+        : {}
+      this.replaceAssetUrls(urls)
+    },
+
+    replaceAssetUrls(urls: Record<string, string>) {
+      if (typeof URL.revokeObjectURL === 'function') {
+        Object.values(this.assetUrls).forEach((url) => URL.revokeObjectURL(url))
+      }
+      this.assetUrls = urls
     },
 
     async finishPreview() {
@@ -319,11 +585,27 @@ export const useReviewStore = defineStore('review', {
       this.unlockTo(4)
     },
 
+    selfAssessResult(questionId: string, status: 'correct' | 'review' | 'wrong') {
+      const result = this.results.find((item) => item.question.id === questionId)
+      if (!result || !isVisualOnlyQuestion(result.question)) return
+
+      result.status = status
+      result.score = status === 'correct' ? 1 : 0
+      result.detail = status === 'correct'
+        ? '已标记为掌握'
+        : status === 'wrong'
+          ? '已标记为未掌握'
+          : '保留为待复习'
+    },
+
     restartRandom() {
       this.startQuiz()
     },
 
     resetToImport() {
+      this.stopOcrPolling()
+      this.browserOcrDraft = null
+      this.browserOcrMessage = ''
       this.slideIndex = 0
       this.unlockedIndex = Math.max(this.unlockedIndex, 0)
     },
@@ -334,22 +616,3 @@ export const useReviewStore = defineStore('review', {
     },
   },
 })
-
-function hasAnswer(value: string | string[] | undefined): boolean {
-  if (Array.isArray(value)) return value.some((item) => item.trim().length > 0)
-  return Boolean(value?.trim())
-}
-
-function createId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-function cloneStudySet(studySet: StudySet): StudySet {
-  return JSON.parse(JSON.stringify(studySet)) as StudySet
-}
-
-function nextOptionLabel(options: QuestionOption[]): string {
-  const used = new Set(options.map((option) => option.label.toUpperCase()))
-  const labels = 'ABCDEFGH'.split('')
-  return labels.find((label) => !used.has(label)) ?? String(options.length + 1)
-}

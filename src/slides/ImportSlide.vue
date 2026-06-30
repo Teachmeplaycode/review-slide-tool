@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import gsap from 'gsap'
-import { ArrowRight, BookOpen, Database, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { ArrowRight, BookOpen, Database, RotateCcw, ScanText, Trash2 } from 'lucide-vue-next'
 import FileDrop from '../components/FileDrop.vue'
 import MarkdownTerminalSample from '../components/MarkdownTerminalSample.vue'
 import TypewriterText from '../components/TypewriterText.vue'
@@ -121,6 +121,13 @@ function prefersReducedMotion(): boolean {
       <aside ref="commandPanel" class="command-panel import-command-panel">
         <div class="import-upload-primary">
           <FileDrop :busy="store.importing" @file="store.importFile" />
+          <label class="ocr-toggle">
+            <input v-model="store.textOcrEnabled" type="checkbox" />
+            <span>
+              <strong><ScanText :size="15" /> 文本文档 OCR 增强</strong>
+              <small>docx / markdown / txt 默认按文本解析；开启后生成可框选的本地页图。PDF 和图片会自动 OCR。</small>
+            </span>
+          </label>
           <p v-if="store.error" class="error-line">{{ store.error }}</p>
         </div>
 

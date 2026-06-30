@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import QuizCard from '../components/QuizCard.vue'
 import TypewriterText from '../components/TypewriterText.vue'
 import { useReviewStore } from '../stores/review'
+import { isVisualOnlyQuestion } from '../services/questions/visualQuestion'
 
 defineProps<{
   active: boolean
@@ -11,6 +12,10 @@ defineProps<{
 
 const store = useReviewStore()
 const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionIndex])
+
+function isQuestionDone(question: typeof store.quizQuestions[number]): boolean {
+  return isVisualOnlyQuestion(question) || Boolean(store.answers[question.id])
+}
 </script>
 
 <template>
@@ -21,7 +26,7 @@ const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionI
         <TypewriterText as="h2" text="逐题完成" :active="active" :duration="0.9" />
         <TypewriterText
           as="p"
-          text="完成后提交，系统会保留你的答案并展示标准答案、匹配度和复盘提示。"
+          text="文本题完成后自动核对；图片题直接按截图作答，提交后自评。"
           :active="active"
           :delay="0.36"
           :duration="1.28"
@@ -31,7 +36,7 @@ const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionI
             v-for="(question, index) in store.quizQuestions"
             :key="question.id"
             type="button"
-            :class="{ active: index === store.activeQuestionIndex, done: Boolean(store.answers[question.id]) }"
+            :class="{ active: index === store.activeQuestionIndex, done: isQuestionDone(question) }"
             @click="store.activeQuestionIndex = index"
           >
             {{ index + 1 }}
@@ -46,6 +51,7 @@ const currentQuestion = computed(() => store.quizQuestions[store.activeQuestionI
           :index="store.activeQuestionIndex"
           :total="store.quizQuestions.length"
           :value="store.answers[currentQuestion.id]"
+          :asset-url="currentQuestion.visual ? store.assetUrls[currentQuestion.visual.assetId] : undefined"
           @answer="store.setAnswer"
         />
         <div v-else class="empty-state">

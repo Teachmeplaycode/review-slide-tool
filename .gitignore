@@ -13,6 +13,23 @@ dist-ssr
 output
 *.local
 
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python/runtime artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.models/
+.runtime/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

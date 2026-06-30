@@ -66,4 +66,20 @@ C.用户与开发者易沟通D.适用可变需求
     expect(questions).toHaveLength(2)
     expect(questions[1].answer).toContain('概要设计')
   })
+
+  it('parses irregular numbered question labels', () => {
+    const questions = parseQuestions(`
+1) 第一题
+第一题答案
+（2）第二题
+第二题答案
+① 第三题
+第三题答案
+四、第四题
+第四题答案
+`)
+
+    expect(questions).toHaveLength(4)
+    expect(questions.map((question) => question.stem)).toEqual(['第一题', '第二题', '第三题', '第四题'])
+  })
 })
