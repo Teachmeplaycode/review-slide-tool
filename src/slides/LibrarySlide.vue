@@ -19,7 +19,7 @@ const masteryLabel = computed(() => {
 <template>
   <section class="slide surface-cold">
     <div class="slide-inner vocab-library">
-      <aside class="vocab-side">
+      <aside class="vocab-side" data-allow-scroll="true">
         <span class="section-label">Vocabulary Library</span>
         <TypewriterText as="h1" text="英语基础词库" :active="active" :duration="0.72" />
         <TypewriterText

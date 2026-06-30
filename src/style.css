@@ -96,6 +96,7 @@ input:disabled {
 .slide-inner {
   width: min(1120px, 88vw);
   height: calc(100vh - 116px);
+  min-height: 0;
   margin: 0 auto;
 }
 
@@ -1296,17 +1297,22 @@ input[type='range'] {
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 28px;
   align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .vocab-side,
 .vocab-workspace {
   min-width: 0;
+  min-height: 0;
 }
 
 .vocab-side {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .vocab-side h1 {
@@ -1393,6 +1399,7 @@ input[type='range'] {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 14px;
+  overflow: hidden;
 }
 
 .vocab-toolbar,
@@ -1470,7 +1477,9 @@ input[type='range'] {
   display: grid;
   align-content: start;
   gap: 10px;
+  max-height: 100%;
   min-height: 0;
+  overscroll-behavior: contain;
   padding-right: 4px;
 }
 
