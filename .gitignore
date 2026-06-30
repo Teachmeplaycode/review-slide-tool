@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 output
+.tmp
+data/*.sqlite
+data/*.sqlite-*
 *.local
 
 # Editor directories and files

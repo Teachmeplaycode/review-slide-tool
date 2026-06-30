@@ -4,19 +4,26 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "client:dev": "vite",
+    "server:dev": "node --watch server/index.mjs",
+    "dev": "concurrently -k \"npm:server:dev\" \"npm:client:dev\"",
     "typecheck": "vue-tsc -b",
     "test": "vitest run",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "concurrently": "^10.0.3",
+    "express": "^5.2.1",
     "gsap": "^3.15.0",
     "idb": "^8.0.3",
     "lucide-vue-next": "^0.577.0",
     "mammoth": "^1.12.0",
+    "multer": "^2.2.0",
     "pinia": "^3.0.4",
-    "vue": "^3.5.38"
+    "vue": "^3.5.38",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
