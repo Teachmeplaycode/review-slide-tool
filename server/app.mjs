@@ -1,8 +1,24 @@
 import express from 'express'
 import multer from 'multer'
 import { initializeDatabase } from './db.mjs'
-import { clearAiApiKey, getAiSettings, getAiSettingsWithKey, getStudyAiSettings, saveAiSettings } from './apiSettingsService.mjs'
+import {
+  clearAiApiKey,
+  clearSearchApiKey,
+  getAiSettings,
+  getAiSettingsWithKey,
+  getSearchSettings,
+  getStudyAiSettings,
+  saveAiSettings,
+  saveSearchSettings,
+} from './apiSettingsService.mjs'
 import { generatePhoneticsWithDeepSeek, generateStudyExplanationsWithDeepSeek } from './aiProviders/deepseek.mjs'
+import {
+  commitVocabularyDraft,
+  generateVocabularyDraft,
+  generateVocabularyDraftBatches,
+  planVocabularyConversation,
+  researchVocabularyContext,
+} from './aiVocabGeneratorService.mjs'
 import { importVocabulary } from './vocabImportService.mjs'
 import {
   applyGeneratedPhonetics,
@@ -12,6 +28,7 @@ import {
   deleteBook,
   disableWord,
   exportBook,
+  getBookById,
   getOverview,
   getSession,
   getSessionAnswers,
@@ -36,7 +53,7 @@ export function createApp(options = {}) {
   const db = options.db ?? initializeDatabase(options.dbPath)
   app.locals.db = db
 
-  app.use(express.json({ limit: '1mb' }))
+  app.use(express.json({ limit: '12mb' }))
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true, db: 'sqlite' })
@@ -69,6 +86,105 @@ export function createApp(options = {}) {
   app.delete('/api/settings/ai/key', (_request, response, next) => {
     try {
       response.json({ settings: clearAiApiKey(db) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/settings/search', (_request, response) => {
+    response.json({ settings: getSearchSettings(db) })
+  })
+
+  app.put('/api/settings/search', (request, response, next) => {
+    try {
+      response.json({ settings: saveSearchSettings(db, request.body ?? {}) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/settings/search/key', (_request, response, next) => {
+    try {
+      response.json({ settings: clearSearchApiKey(db) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/ai/vocab/chat', async (request, response, next) => {
+    try {
+      const result = await planVocabularyConversation(db, request.body ?? {}, {
+        conversationAdapter: options.conversationAdapter,
+      })
+      response.json(result)
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/ai/vocab/research', async (request, response, next) => {
+    try {
+      const result = await researchVocabularyContext(db, request.body ?? {}, {
+        searchAdapter: options.searchAdapter,
+      })
+      response.json(result)
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/ai/vocab/draft', async (request, response, next) => {
+    try {
+      const result = await generateVocabularyDraft(db, request.body ?? {}, {
+        generatorAdapter: options.aiVocabAdapter,
+      })
+      response.status(201).json(result)
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/ai/vocab/stream', async (request, response) => {
+    let closed = false
+    response.on('close', () => {
+      closed = true
+    })
+    response.status(200)
+    response.set({
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    response.flushHeaders?.()
+
+    const keepAlive = setInterval(() => {
+      if (!closed && !response.writableEnded) {
+        response.write(': keep-alive\n\n')
+      }
+    }, 15000)
+    keepAlive.unref?.()
+
+    try {
+      for await (const event of generateVocabularyDraftBatches(db, request.body ?? {}, {
+        generatorAdapter: options.aiVocabAdapter,
+        shouldStop: () => closed || response.writableEnded,
+      })) {
+        if (!writeSseEvent(response, event.type, event.data)) break
+      }
+    } catch (error) {
+      writeSseEvent(response, 'error', {
+        error: error.message || 'AI 生成失败',
+      })
+    } finally {
+      clearInterval(keepAlive)
+      if (!response.writableEnded) response.end()
+    }
+  })
+
+  app.post('/api/ai/vocab/commit', (request, response, next) => {
+    try {
+      response.status(201).json(commitVocabularyDraft(db, request.body ?? {}))
     } catch (error) {
       next(error)
     }
@@ -121,7 +237,8 @@ export function createApp(options = {}) {
       }
 
       const adapter = options.phoneticAdapter ?? generatePhoneticsWithDeepSeek
-      const phonetics = await adapter({ words, settings })
+      const book = getBookById(db, request.params.bookId)
+      const phonetics = await adapter({ words, language: book?.language, settings })
       const result = applyGeneratedPhonetics(db, request.params.bookId, phonetics)
       response.json({
         requestedCount: words.length,
@@ -145,7 +262,7 @@ export function createApp(options = {}) {
     try {
       const word = updateWord(db, request.params.wordId, request.body ?? {})
       if (!word) {
-        response.status(404).json({ error: '单词不存在' })
+        response.status(404).json({ error: '词条不存在' })
         return
       }
       response.json({ word })
@@ -156,7 +273,7 @@ export function createApp(options = {}) {
 
   app.delete('/api/words/:wordId', (request, response) => {
     if (!disableWord(db, request.params.wordId)) {
-      response.status(404).json({ error: '单词不存在' })
+      response.status(404).json({ error: '词条不存在' })
       return
     }
     response.status(204).end()
@@ -223,6 +340,7 @@ export function createApp(options = {}) {
         targetMode: request.body?.targetMode,
         bookId: request.body?.bookId,
         bookName: request.body?.bookName,
+        language: request.body?.language,
       }, {
         aiAdapter: options.aiAdapter,
       })
@@ -249,4 +367,16 @@ function createHttpError(status, message) {
   const error = new Error(message)
   error.status = status
   return error
+}
+
+function writeSseEvent(response, event, data) {
+  if (response.writableEnded || response.destroyed) return false
+
+  try {
+    response.write(`event: ${event}\n`)
+    response.write(`data: ${JSON.stringify(data)}\n\n`)
+    return true
+  } catch {
+    return false
+  }
 }

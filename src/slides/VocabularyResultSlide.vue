@@ -20,7 +20,7 @@ const scoreTitle = computed(() => `本轮正确率 ${store.accuracy}%`)
         <TypewriterText as="h2" :text="scoreTitle" :active="active" :duration="1.05" />
         <TypewriterText
           as="p"
-          text="系统已经把本轮作答写入 SQLite，并更新每个单词的熟练度和错词状态。"
+          text="系统已经把本轮作答写入 SQLite，并更新每个词条的熟练度和错词状态。"
           :active="active"
           :delay="0.4"
           :duration="1.2"
@@ -57,7 +57,7 @@ const scoreTitle = computed(() => `本轮正确率 ${store.accuracy}%`)
         <header class="result-tools">
           <div>
             <BookOpen :size="18" />
-            <strong>{{ store.selectedBook?.name ?? '英语词库' }}</strong>
+            <strong>{{ store.selectedBook?.name ?? '学习词库' }}</strong>
           </div>
           <span>平均熟练度 {{ store.overview?.averageMastery ?? 0 }}/5</span>
         </header>

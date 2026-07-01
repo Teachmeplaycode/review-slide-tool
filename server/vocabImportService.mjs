@@ -5,11 +5,12 @@ import { adaptVocabularyWithDeepSeek } from './aiProviders/deepseek.mjs'
 import { extractTextFromFile } from './fileTextExtractor.mjs'
 
 const TARGET_MODES = new Set(['new_book', 'merge_current'])
-const POS_PATTERN = /^(n|v|adj|adv|prep|conj|pron|num|abbr)\.?$/i
+const POS_PATTERN = /^(n|v|adj|adv|prep|conj|pron|num|abbr|名|动|形|副|介|连|代|数)\.?$/i
 
 export async function importVocabulary(db, input, options = {}) {
   const targetMode = TARGET_MODES.has(input.targetMode) ? input.targetMode : 'new_book'
   const aiAdapter = options.aiAdapter ?? adaptVocabularyWithDeepSeek
+  const language = cleanLanguage(input.language, 'en')
   const context = {
     sourceFile: input.file?.originalname ?? 'uploaded file',
     targetBookId: input.bookId || '',
@@ -30,7 +31,7 @@ export async function importVocabulary(db, input, options = {}) {
     const aiSettings = getActiveAiSettings(db)
     context.provider = aiSettings ? 'deepseek' : 'local'
     const rawEntries = aiSettings
-      ? await runAiAdapter(aiAdapter, extracted.text, extracted.sourceFile, aiSettings)
+      ? await runAiAdapter(aiAdapter, extracted.text, extracted.sourceFile, aiSettings, language)
       : parseVocabularyText(extracted.text)
 
     const entries = normalizeImportedWords(rawEntries)
@@ -42,6 +43,7 @@ export async function importVocabulary(db, input, options = {}) {
       targetMode,
       bookId: input.bookId,
       bookName: input.bookName || titleFromFileName(extracted.sourceFile),
+      language,
     })
     context.targetBookId = book.id
 
@@ -79,6 +81,67 @@ export async function importVocabulary(db, input, options = {}) {
   }
 }
 
+export function createVocabularyBookFromEntries(db, input = {}) {
+  const targetMode = input.targetMode === 'merge_current' ? 'merge_current' : 'new_book'
+  const language = cleanLanguage(input.language)
+  const bookName = cleanBookName(input.bookName)
+  const entries = normalizeImportedWords(input.entries ?? input.words)
+
+  if (!entries.length) {
+    throw createHttpError(400, '没有可保存的有效词条')
+  }
+
+  const context = {
+    sourceFile: input.sourceFile || 'AI 生成词库',
+    targetBookId: input.bookId || '',
+    mode: targetMode,
+    provider: input.provider || 'deepseek',
+    rawTextLength: 0,
+  }
+
+  try {
+    const book = resolveTargetBook(db, {
+      targetMode,
+      bookId: input.bookId,
+      bookName,
+      language,
+      description: input.description || `由 AI 生成：${bookName}`,
+    })
+    context.targetBookId = book.id
+    const importResult = insertImportedWords(db, book.id, entries)
+    const summaryBook = getBookSummary(db, book.id)
+    const job = recordImportJob(db, {
+      ...context,
+      status: 'success',
+      importedCount: importResult.importedCount,
+      skippedCount: importResult.skippedCount,
+      errorMessage: '',
+    })
+
+    return {
+      job,
+      book: summaryBook,
+      importedCount: importResult.importedCount,
+      skippedCount: importResult.skippedCount,
+      rawTextLength: 0,
+      sourceFile: context.sourceFile,
+      provider: context.provider,
+      usedAi: context.provider === 'deepseek',
+      targetMode,
+      previewWords: importResult.previewWords,
+    }
+  } catch (error) {
+    recordImportJob(db, {
+      ...context,
+      status: 'failed',
+      importedCount: 0,
+      skippedCount: 0,
+      errorMessage: error.message || '保存失败',
+    })
+    throw error
+  }
+}
+
 export function parseVocabularyText(text) {
   const entries = []
   entries.push(...parseMarkdownRows(text))
@@ -98,7 +161,7 @@ export function normalizeImportedWords(rawEntries) {
   for (const raw of rawEntries ?? []) {
     const entry = normalizeEntry(raw)
     if (!entry) continue
-    const key = entry.word.toLowerCase()
+    const key = normalizeTermKey(entry.word)
     if (seen.has(key)) continue
     seen.add(key)
     entries.push(entry)
@@ -107,15 +170,16 @@ export function normalizeImportedWords(rawEntries) {
   return entries
 }
 
-function runAiAdapter(aiAdapter, text, sourceFile, settings) {
+function runAiAdapter(aiAdapter, text, sourceFile, settings, language) {
   return aiAdapter({
     text,
     sourceFile,
     settings,
+    language,
   })
 }
 
-function resolveTargetBook(db, { targetMode, bookId, bookName }) {
+function resolveTargetBook(db, { targetMode, bookId, bookName, language, description }) {
   if (targetMode === 'merge_current') {
     const book = db.prepare('SELECT * FROM word_books WHERE id = ?').get(bookId)
     if (!book) throw createHttpError(404, '目标词库不存在')
@@ -124,11 +188,12 @@ function resolveTargetBook(db, { targetMode, bookId, bookName }) {
 
   const now = Date.now()
   const name = cleanBookName(bookName)
+  const safeLanguage = cleanLanguage(language)
   const id = createId('book')
   db.prepare(`
     INSERT INTO word_books (id, name, description, language, created_at, updated_at)
-    VALUES (?, ?, ?, 'en', ?, ?)
-  `).run(id, name, `由文件导入生成：${name}`, now, now)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, name, description || `由文件导入生成：${name}`, safeLanguage, now, now)
 
   return getBookSummary(db, id)
 }
@@ -136,13 +201,13 @@ function resolveTargetBook(db, { targetMode, bookId, bookName }) {
 function insertImportedWords(db, bookId, entries) {
   const now = Date.now()
   const existing = new Set(
-    db.prepare('SELECT LOWER(word) AS word FROM words WHERE book_id = ?').all(bookId).map((row) => row.word),
+    db.prepare('SELECT word FROM words WHERE book_id = ?').all(bookId).map((row) => normalizeTermKey(row.word)),
   )
   const accepted = []
   let skippedCount = 0
 
   for (const entry of entries) {
-    const key = entry.word.toLowerCase()
+    const key = normalizeTermKey(entry.word)
     if (existing.has(key)) {
       skippedCount += 1
       continue
@@ -255,10 +320,10 @@ function parseMarkdownRows(text) {
     const cells = line.split('|').map((cell) => cell.trim()).filter(Boolean)
     if (cells.length < 2) continue
     if (cells.every((cell) => /^:?-{2,}:?$/.test(cell))) continue
-    if (cells.some((cell) => /^(word|单词|英文|meaning|释义|中文)$/i.test(cell))) continue
+    if (cells.some((cell) => /^(word|term|词条|单词|英文|目标词|meaning|释义|中文)$/i.test(cell))) continue
 
     const [word, second, third, fourth, fifth, sixth, seventh, eighth] = cells
-    if (!looksLikeEnglishWord(word)) continue
+    if (!looksLikeVocabularyTerm(word)) continue
 
     const hasPhonetic = looksLikePhonetic(second)
     const hasPartOfSpeech = POS_PATTERN.test(hasPhonetic ? third : second)
@@ -286,10 +351,12 @@ function parseTextLine(line) {
 
   if (!cleaned || cleaned.includes('|')) return null
 
-  const separated = cleaned.match(/^([A-Za-z][A-Za-z\s'-]{0,80}?)(?:\s+(\/[^/]+\/|\[[^\]]+\]))?(?:\s+((?:n|v|adj|adv|prep|conj|pron|num|abbr)\.?))?\s*(?:[-—–:：\t])\s*(.+)$/i)
+  const separated = cleaned.match(/^(.{1,80}?)(?:\s+(\/[^/]+\/|\[[^\]]+\]))?(?:\s+((?:n|v|adj|adv|prep|conj|pron|num|abbr|名|动|形|副|介|连|代|数)\.?))?\s*(?:[-—–:：\t])\s*(.+)$/iu)
   if (separated) {
+    const word = cleanWord(separated[1])
+    if (!looksLikeVocabularyTerm(word)) return null
     return {
-      word: separated[1],
+      word,
       phonetic: separated[2] ?? '',
       partOfSpeech: separated[3] ?? '',
       meaningZh: separated[4],
@@ -313,7 +380,7 @@ function normalizeEntry(raw) {
   const word = cleanWord(raw.word)
   const meaningZh = stringValue(raw.meaningZh ?? raw.meaning ?? raw.translation).trim()
 
-  if (!looksLikeEnglishWord(word) || !meaningZh) return null
+  if (!looksLikeVocabularyTerm(word) || !meaningZh) return null
 
   return {
     word,
@@ -387,6 +454,15 @@ function cleanBookName(value) {
   return name || '导入词库'
 }
 
+function cleanLanguage(value, fallback = '自定义语言') {
+  const language = stringValue(value, fallback).trim().replace(/\s+/g, ' ')
+  return language || fallback
+}
+
+function normalizeTermKey(value) {
+  return stringValue(value).normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+}
+
 function titleFromFileName(fileName) {
   return path.basename(String(fileName || '导入词库'), path.extname(String(fileName || '')))
 }
@@ -397,8 +473,12 @@ function normalizePartOfSpeech(value) {
   return text.endsWith('.') ? text : `${text}.`
 }
 
-function looksLikeEnglishWord(value) {
-  return /^[A-Za-z][A-Za-z\s'-]{0,80}$/.test(String(value).trim())
+function looksLikeVocabularyTerm(value) {
+  const text = String(value ?? '').trim()
+  return Boolean(text)
+    && text.length <= 80
+    && !/[\u0000-\u001F\u007F]/.test(text)
+    && !/^(word|term|词条|单词)$/i.test(text)
 }
 
 function looksLikePhonetic(value) {

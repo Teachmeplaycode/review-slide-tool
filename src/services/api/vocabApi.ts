@@ -70,7 +70,7 @@ export async function fetchBooks(): Promise<WordBook[]> {
   return payload.books
 }
 
-export async function createBook(draft: Pick<WordBook, 'name' | 'description'>): Promise<WordBook> {
+export async function createBook(draft: Pick<WordBook, 'name' | 'description' | 'language'>): Promise<WordBook> {
   const payload = await requestJson<BookResponse>('/api/books', {
     method: 'POST',
     body: JSON.stringify(draft),
@@ -80,7 +80,7 @@ export async function createBook(draft: Pick<WordBook, 'name' | 'description'>):
 
 export async function updateBook(
   bookId: string,
-  draft: Pick<WordBook, 'name' | 'description'>,
+  draft: Pick<WordBook, 'name' | 'description' | 'language'>,
 ): Promise<WordBook> {
   const payload = await requestJson<BookResponse>(`/api/books/${encodeURIComponent(bookId)}`, {
     method: 'PATCH',

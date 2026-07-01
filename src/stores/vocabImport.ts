@@ -5,6 +5,7 @@ import { importVocabulary } from '../services/api/importApi'
 type VocabImportState = {
   targetMode: ImportTargetMode
   bookName: string
+  language: string
   file: File | null
   importing: boolean
   result: VocabImportResult | null
@@ -15,6 +16,7 @@ export const useVocabImportStore = defineStore('vocabImport', {
   state: (): VocabImportState => ({
     targetMode: 'new_book',
     bookName: '',
+    language: '英语',
     file: null,
     importing: false,
     result: null,
@@ -46,7 +48,7 @@ export const useVocabImportStore = defineStore('vocabImport', {
       this.error = ''
     },
 
-    async runImport(currentBookId: string): Promise<VocabImportResult | null> {
+    async runImport(currentBookId: string, currentLanguage = '英语'): Promise<VocabImportResult | null> {
       if (!this.file) return null
 
       this.importing = true
@@ -59,6 +61,7 @@ export const useVocabImportStore = defineStore('vocabImport', {
           targetMode: this.targetMode,
           bookId: currentBookId,
           bookName: this.bookName,
+          language: this.targetMode === 'merge_current' ? currentLanguage : this.language,
         })
         return this.result
       } catch (error) {

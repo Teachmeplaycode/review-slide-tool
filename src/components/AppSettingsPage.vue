@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import AiSettingsPanel from './AiSettingsPanel.vue'
+import AiVocabGeneratorPanel from './AiVocabGeneratorPanel.vue'
 import VocabImportPanel from './VocabImportPanel.vue'
 import { useVocabStore } from '../stores/vocab'
 
@@ -24,7 +25,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsPanel = 'words' | 'library' | 'import' | 'api'
+type SettingsPanel = 'words' | 'library' | 'generate' | 'import' | 'api'
 
 const store = useVocabStore()
 const activePanel = ref<SettingsPanel>(store.selectedBookId ? 'words' : 'library')
@@ -35,11 +36,16 @@ const masteryLabel = computed(() => {
 })
 
 const panelOptions: { value: SettingsPanel; label: string }[] = [
-  { value: 'words', label: '单词' },
+  { value: 'words', label: '词条' },
   { value: 'library', label: '编辑词库' },
+  { value: 'generate', label: 'AI 生成' },
   { value: 'import', label: '导入' },
   { value: 'api', label: 'API' },
 ]
+
+function languageLabel(language: string) {
+  return language === 'en' ? '英语' : language
+}
 
 function onSettingsContentScroll(event: Event) {
   if (activePanel.value !== 'words' || !store.hasMoreWords || store.loadingMoreWords) return
@@ -58,7 +64,7 @@ function selectBook(bookId: string) {
 
 async function confirmDeleteSelectedBook() {
   const name = store.selectedBook?.name ?? '当前词库'
-  if (!window.confirm(`确定删除“${name}”？词库内单词、进度和训练记录会一起删除。`)) return
+  if (!window.confirm(`确定删除“${name}”？词库内词条、进度和训练记录会一起删除。`)) return
   await store.deleteSelectedBook()
   activePanel.value = store.selectedBookId ? 'words' : 'library'
 }
@@ -93,7 +99,7 @@ async function confirmDeleteSelectedBook() {
                 @click="selectBook(book.id)"
               >
                 <strong>{{ book.name }}</strong>
-                <span>{{ book.wordCount }} 词</span>
+                <span>{{ languageLabel(book.language) }} · {{ book.wordCount }} 词</span>
               </button>
             </div>
             <p v-else>还没有词库，请到导入页上传文件。</p>
@@ -102,7 +108,7 @@ async function confirmDeleteSelectedBook() {
           <dl class="vocab-stats">
             <div>
               <dt>{{ store.overview?.totalWords ?? 0 }}</dt>
-              <dd>可学单词</dd>
+              <dd>可学词条</dd>
             </div>
             <div>
               <dt>{{ store.overview?.reviewWords ?? 0 }}</dt>
@@ -137,7 +143,7 @@ async function confirmDeleteSelectedBook() {
                   :value="store.wordQuery"
                   :disabled="!store.selectedBookId"
                   type="search"
-                  placeholder="搜索英文、中文释义或标签"
+                  placeholder="搜索目标词、中文释义或标签"
                   @input="store.searchWords(($event.target as HTMLInputElement).value)"
                 />
               </label>
@@ -153,24 +159,24 @@ async function confirmDeleteSelectedBook() {
               >
                 <Loader2 v-if="store.generatingPhonetics" :size="14" class="spin" />
                 <Sparkles v-else :size="14" />
-                {{ store.generatingPhonetics ? '生成中' : '生成缺失音标' }}
+                {{ store.generatingPhonetics ? '生成中' : '生成缺失读音' }}
               </button>
             </header>
 
             <form v-if="store.selectedBookId" class="word-form word-form--compact" @submit.prevent="store.saveWordDraft">
               <div class="word-form__head">
-                <strong>{{ store.editingWordId ? '编辑单词' : '新增单词' }}</strong>
+                <strong>{{ store.editingWordId ? '编辑词条' : '新增词条' }}</strong>
                 <button v-if="store.editingWordId" class="mini-command" type="button" @click="store.resetWordDraft">
                   <X :size="14" /> 取消编辑
                 </button>
               </div>
 
               <div class="word-form__grid">
-                <input v-model="store.wordDraft.word" required placeholder="英文单词" />
-                <input v-model="store.wordDraft.phonetic" placeholder="音标" />
+                <input v-model="store.wordDraft.word" required :placeholder="store.targetTermLabel" />
+                <input v-model="store.wordDraft.phonetic" placeholder="读音 / 音标" />
                 <input v-model="store.wordDraft.partOfSpeech" placeholder="词性，如 n./v." />
                 <input v-model="store.wordDraft.meaningZh" required placeholder="中文释义" />
-                <input v-model="store.wordDraft.exampleEn" placeholder="英文例句" />
+                <input v-model="store.wordDraft.exampleEn" placeholder="目标语例句" />
                 <input v-model="store.wordDraft.exampleZh" placeholder="中文例句" />
                 <input v-model="store.wordDraft.tags" placeholder="标签，如 basic,study" />
                 <select v-model.number="store.wordDraft.difficulty">
@@ -187,7 +193,7 @@ async function confirmDeleteSelectedBook() {
                 type="submit"
                 :disabled="store.savingWord || !store.wordDraft.word.trim() || !store.wordDraft.meaningZh.trim()"
               >
-                <Plus :size="16" /> {{ store.editingWordId ? '保存修改' : '添加到词库' }}
+                <Plus :size="16" /> {{ store.editingWordId ? '保存修改' : '添加到学习库' }}
               </button>
             </form>
 
@@ -200,7 +206,7 @@ async function confirmDeleteSelectedBook() {
               <article v-for="word in store.words" :key="word.id" class="word-row">
                 <div class="word-row__main">
                   <strong>{{ word.word }}</strong>
-                  <span>{{ word.phonetic || '暂无音标' }}</span>
+                  <span>{{ word.phonetic || '暂无读音' }}</span>
                   <small>{{ word.partOfSpeech }} {{ word.meaningZh }}</small>
                 </div>
                 <div class="word-row__meta">
@@ -220,7 +226,7 @@ async function confirmDeleteSelectedBook() {
                 </div>
               </article>
               <div v-if="!store.words.length" class="empty-state word-empty-state">
-                <p>当前没有匹配单词。</p>
+                <p>当前没有匹配词条。</p>
               </div>
               <footer v-else class="word-list-footer">
                 <span>{{ store.wordDisplayLabel }}</span>
@@ -246,6 +252,10 @@ async function confirmDeleteSelectedBook() {
               <label>
                 <span>词库描述</span>
                 <textarea v-model="store.bookDraft.description" rows="3" placeholder="用于说明来源、范围或学习目标" />
+              </label>
+              <label>
+                <span>目标语言</span>
+                <input v-model="store.bookDraft.language" type="text" required placeholder="例如：英语、日语、法语" />
               </label>
               <div class="book-manage__actions">
                 <button class="mini-command" type="submit" :disabled="store.savingBook || !store.bookDraft.name.trim()">
@@ -275,6 +285,10 @@ async function confirmDeleteSelectedBook() {
               <p>切换到“导入”上传文件，导入后可在这里编辑名称、描述并导出处理后的词库。</p>
               <button class="mini-command" type="button" @click="activePanel = 'import'">去导入</button>
             </div>
+          </div>
+
+          <div v-else-if="activePanel === 'generate'" class="settings-panel settings-panel--narrow">
+            <AiVocabGeneratorPanel />
           </div>
 
           <div v-else-if="activePanel === 'import'" class="settings-panel settings-panel--narrow">

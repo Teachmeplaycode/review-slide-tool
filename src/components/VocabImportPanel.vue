@@ -13,7 +13,7 @@ const aiStatus = computed(() => (aiSettings.enabled ? 'DeepSeek 处理' : '本�
 const importBusy = computed(() => importer.importing || vocab.generatingPhonetics)
 const importButtonLabel = computed(() => {
   if (importer.importing) return aiSettings.enabled ? 'DeepSeek 正在整理' : '正在导入'
-  if (vocab.generatingPhonetics) return '正在补全音标'
+  if (vocab.generatingPhonetics) return '正在补全读音'
   return '开始导入'
 })
 
@@ -27,7 +27,7 @@ onMounted(() => {
 })
 
 async function runImport() {
-  const result = await importer.runImport(vocab.selectedBookId)
+  const result = await importer.runImport(vocab.selectedBookId, vocab.selectedLanguageLabel)
   if (!result) return
 
   if (result.targetMode === 'new_book') {
@@ -47,7 +47,7 @@ async function runImport() {
     <header>
       <div>
         <UploadCloud :size="18" />
-        <strong>导入单词库</strong>
+        <strong>导入学习库</strong>
       </div>
       <span>{{ aiStatus }}</span>
     </header>
@@ -75,6 +75,11 @@ async function runImport() {
       <input v-model="importer.bookName" type="text" placeholder="默认使用文件名" />
     </label>
 
+    <label v-if="importer.targetMode === 'new_book'" class="import-field">
+      <span>目标语言</span>
+      <input v-model="importer.language" type="text" placeholder="例如：英语、日语、法语" />
+    </label>
+
     <label class="file-upload-box">
       <input
         type="file"
@@ -99,7 +104,7 @@ async function runImport() {
       <span>
         {{ importer.result.sourceFile }} · {{ importer.result.provider === 'deepseek' ? 'DeepSeek' : '本地解析' }}
       </span>
-      <p>新增 {{ importer.result.importedCount }} 个，跳过重复 {{ importer.result.skippedCount }} 个。</p>
+      <p>{{ importer.result.book.language }} · 新增 {{ importer.result.importedCount }} 个，跳过重复 {{ importer.result.skippedCount }} 个。</p>
     </div>
   </section>
 </template>

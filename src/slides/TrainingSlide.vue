@@ -16,6 +16,7 @@ const progressText = computed(() => {
   return `${store.activeItemIndex + 1} / ${store.studyItems.length}`
 })
 const nextLabel = computed(() => (store.activeItemIndex >= store.studyItems.length - 1 ? '查看复盘' : '下一题'))
+const spellingLabel = computed(() => `${store.selectedLanguageLabel}词条`)
 const canSubmitCurrent = computed(() => {
   if (!item.value || result.value || store.studying) return false
   if (item.value.mode === 'spelling') return true
@@ -96,60 +97,62 @@ function isAnswered(index: number) {
             <span class="type-pill">{{ item.mode === 'recognition' ? '认词选择' : '拼写练习' }}</span>
           </header>
 
-          <div class="word-prompt">
-            <small>{{ item.word.partOfSpeech }} {{ item.word.phonetic }}</small>
-            <h2>{{ item.prompt }}</h2>
-            <p v-if="item.mode === 'recognition'">选择最匹配的中文释义。</p>
-            <p v-else>输入这个中文释义对应的英文单词。</p>
-          </div>
-
-          <div v-if="item.mode === 'recognition'" class="choice-grid">
-            <button
-              v-for="choice in item.choices"
-              :key="choice"
-              type="button"
-              :disabled="Boolean(result)"
-              :class="{ selected: store.currentAnswer === choice }"
-              @click="store.chooseAnswer(choice)"
-            >
-              {{ choice }}
-            </button>
-          </div>
-
-          <label v-else class="spelling-box">
-            <span>英文拼写</span>
-            <input
-              v-model="store.currentAnswer"
-              type="text"
-              autocomplete="off"
-              :disabled="Boolean(result)"
-              placeholder="输入英文单词"
-              @keydown.enter.prevent="store.submitCurrentAnswer"
-            />
-          </label>
-
-          <div v-if="result" :class="['answer-feedback', { correct: result.correct }]">
-            <div>
-              <CheckCircle2 v-if="result.correct" :size="22" />
-              <XCircle v-else :size="22" />
-              <strong>{{ result.correct ? '回答正确' : '需要复习' }}</strong>
+          <div class="word-card__body" data-allow-scroll="true">
+            <div class="word-prompt">
+              <small>{{ item.word.partOfSpeech }} {{ item.word.phonetic }}</small>
+              <h2>{{ item.prompt }}</h2>
+              <p v-if="item.mode === 'recognition'">选择最匹配的中文释义。</p>
+              <p v-else>输入这个中文释义对应的{{ store.selectedLanguageLabel }}词条。</p>
             </div>
-            <p>正确答案：{{ result.correctAnswer }}</p>
-            <p>{{ item.word.word }} {{ item.word.phonetic }}：{{ item.word.meaningZh }}</p>
-            <blockquote v-if="item.word.exampleEn">
-              {{ item.word.exampleEn }}
-              <span>{{ item.word.exampleZh }}</span>
-            </blockquote>
-            <div v-if="store.explanationsLoading || store.explanationForItem(item.id)" class="ai-explanation">
-              <strong><Sparkles :size="14" /> AI 简析</strong>
-              <p v-if="store.explanationForItem(item.id)">{{ store.explanationForItem(item.id) }}</p>
-              <p v-else>正在生成简短解析...</p>
-            </div>
-            <small>当前熟练度 {{ result.progress.mastery }}/5，累计 {{ result.progress.attempts }} 次。</small>
-          </div>
 
-          <p v-if="store.error" class="error-line">{{ store.error }}</p>
-          <p v-if="store.explanationsError" class="error-line">{{ store.explanationsError }}</p>
+            <div v-if="item.mode === 'recognition'" class="choice-grid">
+              <button
+                v-for="choice in item.choices"
+                :key="choice"
+                type="button"
+                :disabled="Boolean(result)"
+                :class="{ selected: store.currentAnswer === choice }"
+                @click="store.chooseAnswer(choice)"
+              >
+                {{ choice }}
+              </button>
+            </div>
+
+            <label v-else class="spelling-box">
+              <span>{{ spellingLabel }}</span>
+              <input
+                v-model="store.currentAnswer"
+                type="text"
+                autocomplete="off"
+                :disabled="Boolean(result)"
+                :placeholder="`输入${store.selectedLanguageLabel}词条`"
+                @keydown.enter.prevent="store.submitCurrentAnswer"
+              />
+            </label>
+
+            <div v-if="result" :class="['answer-feedback', { correct: result.correct }]">
+              <div>
+                <CheckCircle2 v-if="result.correct" :size="22" />
+                <XCircle v-else :size="22" />
+                <strong>{{ result.correct ? '回答正确' : '需要复习' }}</strong>
+              </div>
+              <p>正确答案：{{ result.correctAnswer }}</p>
+              <p>{{ item.word.word }} {{ item.word.phonetic }}：{{ item.word.meaningZh }}</p>
+              <blockquote v-if="item.word.exampleEn">
+                {{ item.word.exampleEn }}
+                <span>{{ item.word.exampleZh }}</span>
+              </blockquote>
+              <div v-if="store.explanationsLoading || store.explanationForItem(item.id)" class="ai-explanation">
+                <strong><Sparkles :size="14" /> AI 简析</strong>
+                <p v-if="store.explanationForItem(item.id)">{{ store.explanationForItem(item.id) }}</p>
+                <p v-else>正在生成简短解析...</p>
+              </div>
+              <small>当前熟练度 {{ result.progress.mastery }}/5，累计 {{ result.progress.attempts }} 次。</small>
+            </div>
+
+            <p v-if="store.error" class="error-line">{{ store.error }}</p>
+            <p v-if="store.explanationsError" class="error-line">{{ store.explanationsError }}</p>
+          </div>
 
           <footer class="quiz-actions">
             <div class="quiz-actions__pager">

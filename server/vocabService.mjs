@@ -62,6 +62,7 @@ export function updateBook(db, bookId, input = {}) {
 
   const name = stringValue(input.name, current.name).trim()
   const description = stringValue(input.description, current.description).trim()
+  const language = stringValue(input.language, current.language).trim() || current.language
 
   if (!name) {
     throw createHttpError(400, '词库名称不能为空')
@@ -71,9 +72,10 @@ export function updateBook(db, bookId, input = {}) {
     UPDATE word_books
     SET name = ?,
       description = ?,
+      language = ?,
       updated_at = ?
     WHERE id = ?
-  `).run(name, description, Date.now(), bookId)
+  `).run(name, description, language, Date.now(), bookId)
 
   return getBookById(db, bookId)
 }
@@ -222,7 +224,7 @@ export function updateWord(db, wordId, input) {
   }
 
   if (!next.word || !next.meaningZh) {
-    throw createHttpError(400, '单词和中文释义不能为空')
+    throw createHttpError(400, '词条和中文释义不能为空')
   }
 
   db.prepare(`
@@ -344,17 +346,17 @@ export function startStudySession(db, input) {
   const requestedCount = normalizeStudyCount(input.count)
   const reviewOnly = Boolean(input.reviewOnly)
 
-  const book = db.prepare('SELECT id FROM word_books WHERE id = ?').get(bookId)
+  const book = db.prepare('SELECT id, language FROM word_books WHERE id = ?').get(bookId)
   if (!book) throw createHttpError(404, '词库不存在')
 
   const pool = loadStudyPool(db, bookId, reviewOnly)
   if (!pool.length) {
-    throw createHttpError(400, reviewOnly ? '当前没有需要复习的错词' : '当前词库没有可学习单词')
+    throw createHttpError(400, reviewOnly ? '当前没有需要复习的错词' : '当前词库没有可学习词条')
   }
 
   const picked = shuffle(pool).slice(0, Math.min(requestedCount, pool.length))
   const allWords = db.prepare('SELECT id, meaning_zh FROM words WHERE book_id = ? AND enabled = 1').all(bookId)
-  const items = picked.map((word, index) => buildStudyItem(word, resolveItemMode(mode, index), allWords))
+  const items = picked.map((word, index) => buildStudyItem(word, resolveItemMode(mode, index), allWords, book.language))
   const now = Date.now()
   const session = {
     id: createId('session'),
@@ -379,13 +381,13 @@ export function submitStudyAnswer(db, sessionId, input) {
   if (!session) throw createHttpError(404, '学习会话不存在')
 
   const word = db.prepare('SELECT * FROM words WHERE id = ? AND enabled = 1').get(input.wordId)
-  if (!word) throw createHttpError(404, '单词不存在')
+  if (!word) throw createHttpError(404, '词条不存在')
 
   const mode = input.mode === 'spelling' ? 'spelling' : 'recognition'
   const userAnswer = String(input.userAnswer ?? '')
   const correctAnswer = mode === 'spelling' ? word.word : word.meaning_zh
   const correct = mode === 'spelling'
-    ? normalizeEnglish(userAnswer) === normalizeEnglish(word.word)
+    ? normalizeTermAnswer(userAnswer) === normalizeTermAnswer(word.word)
     : normalizeText(userAnswer) === normalizeText(word.meaning_zh)
   const now = Date.now()
 
@@ -614,11 +616,12 @@ function loadStudyPool(db, bookId, reviewOnly) {
   return db.prepare(sql).all(bookId).map(mapWord)
 }
 
-function buildStudyItem(word, mode, allWords) {
+function buildStudyItem(word, mode, allWords, language) {
   return {
     id: createId('item'),
     wordId: word.id,
     mode,
+    language,
     prompt: mode === 'spelling' ? word.meaningZh : word.word,
     word: {
       id: word.id,
@@ -653,7 +656,7 @@ function normalizeWordInput(input) {
   const meaningZh = stringValue(input.meaningZh).trim()
 
   if (!word || !meaningZh) {
-    throw createHttpError(400, '单词和中文释义不能为空')
+    throw createHttpError(400, '词条和中文释义不能为空')
   }
 
   return {
@@ -687,12 +690,12 @@ function stringValue(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value)
 }
 
-function normalizeEnglish(value) {
-  return String(value).trim().toLowerCase()
+function normalizeTermAnswer(value) {
+  return String(value).normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 function normalizeText(value) {
-  return String(value).trim().replace(/\s+/g, ' ')
+  return String(value).normalize('NFKC').trim().replace(/\s+/g, ' ')
 }
 
 function clampNumber(value, min, max) {

@@ -14,6 +14,11 @@ const masteryLabel = computed(() => {
   if (!store.overview || store.overview.totalWords === 0) return '0%'
   return `${Math.round((store.overview.learnedWords / store.overview.totalWords) * 100)}%`
 })
+const productTitle = '万汇言'
+const libraryIntro = computed(() => {
+  const language = store.selectedLanguageLabel
+  return `从本地 SQLite 读取${language}词库，记录熟练度、错词和训练结果。编辑词库、导入、AI 生成和读音补全统一放在右上角设置里。`
+})
 </script>
 
 <template>
@@ -21,10 +26,10 @@ const masteryLabel = computed(() => {
     <div class="slide-inner home-intro">
       <div class="home-intro__copy">
         <span class="section-label">Vocabulary Library</span>
-        <TypewriterText as="h1" text="英语基础词库" :active="active" :duration="0.72" />
+        <TypewriterText as="h1" :text="productTitle" :active="active" :duration="0.72" />
         <TypewriterText
           as="p"
-          text="从本地 SQLite 读取词库，记录熟练度、错词和训练结果。编辑词库、导入、DeepSeek API 和音标生成统一放在右上角齿轮设置里。"
+          :text="libraryIntro"
           :active="active"
           :delay="0.12"
           :duration="0.72"
@@ -41,7 +46,7 @@ const masteryLabel = computed(() => {
         <dl class="vocab-stats">
           <div>
             <dt>{{ store.overview?.totalWords ?? 0 }}</dt>
-            <dd>可学单词</dd>
+            <dd>可学词条</dd>
           </div>
           <div>
             <dt>{{ store.overview?.reviewWords ?? 0 }}</dt>
@@ -59,7 +64,7 @@ const masteryLabel = computed(() => {
           </button>
           <span>
             <Settings :size="15" />
-            右上角设置可管理词库和 API
+            右上角设置可管理学习库和 API
           </span>
         </div>
       </div>

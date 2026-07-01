@@ -70,6 +70,7 @@ describe('vocab import store', () => {
       targetMode: 'new_book',
       bookId: 'basic_english',
       bookName: 'words',
+      language: '英语',
     })
     expect(result?.importedCount).toBe(2)
     expect(store.result?.book.id).toBe('book_2')

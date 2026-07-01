@@ -5,6 +5,7 @@ export type ImportVocabularyPayload = {
   targetMode: ImportTargetMode
   bookId: string
   bookName: string
+  language: string
 }
 
 export async function importVocabulary(payload: ImportVocabularyPayload): Promise<VocabImportResult> {
@@ -13,6 +14,7 @@ export async function importVocabulary(payload: ImportVocabularyPayload): Promis
   form.append('targetMode', payload.targetMode)
   form.append('bookId', payload.bookId)
   form.append('bookName', payload.bookName)
+  form.append('language', payload.language)
 
   const response = await fetch('/api/import/vocab', {
     method: 'POST',

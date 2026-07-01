@@ -149,9 +149,10 @@ describe('vocab store', () => {
     expect(updateBook).toHaveBeenCalledWith(book.id, {
       name: '新版词库',
       description: '基础单词',
+      language: '英语',
     })
     expect(generateBookPhonetics).toHaveBeenCalledWith(book.id, { limit: 120 })
-    expect(store.phoneticStatus).toBe('已补全 1 个音标，跳过 0 个。')
+    expect(store.phoneticStatus).toBe('已补全 1 个读音，跳过 0 个。')
   })
 
   it('keeps generating phonetics until the book has no remaining missing phonetics', async () => {
@@ -176,7 +177,7 @@ describe('vocab store', () => {
     await store.generateMissingPhonetics()
 
     expect(generateBookPhonetics).toHaveBeenCalledTimes(2)
-    expect(store.phoneticStatus).toBe('已补全 130 个音标，跳过 0 个。')
+    expect(store.phoneticStatus).toBe('已补全 130 个读音，跳过 0 个。')
   })
 
   it('creates an empty book and selects it', async () => {
@@ -192,6 +193,7 @@ describe('vocab store', () => {
     expect(createBook).toHaveBeenCalledWith({
       name: '新版词库',
       description: '',
+      language: '英语',
     })
     expect(store.selectedBookId).toBe('book_new')
   })

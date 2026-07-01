@@ -1,12 +1,22 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearAiApiKey, fetchAiSettings, saveAiSettings } from '../services/api/settingsApi'
+import {
+  clearAiApiKey,
+  clearSearchApiKey,
+  fetchAiSettings,
+  fetchSearchSettings,
+  saveAiSettings,
+  saveSearchSettings,
+} from '../services/api/settingsApi'
 import { useAiSettingsStore } from './aiSettings'
 
 vi.mock('../services/api/settingsApi', () => ({
   clearAiApiKey: vi.fn(),
+  clearSearchApiKey: vi.fn(),
   fetchAiSettings: vi.fn(),
+  fetchSearchSettings: vi.fn(),
   saveAiSettings: vi.fn(),
+  saveSearchSettings: vi.fn(),
 }))
 
 describe('ai settings store', () => {
@@ -40,15 +50,38 @@ describe('ai settings store', () => {
       hasApiKey: false,
       apiKeyPreview: '',
     })
+    vi.mocked(fetchSearchSettings).mockResolvedValue({
+      provider: 'tavily',
+      baseUrl: 'https://api.tavily.com',
+      enabled: true,
+      hasApiKey: true,
+      apiKeyPreview: 'tvly****1234',
+    })
+    vi.mocked(saveSearchSettings).mockResolvedValue({
+      provider: 'tavily',
+      baseUrl: 'https://api.tavily.com',
+      enabled: true,
+      hasApiKey: true,
+      apiKeyPreview: 'tvly****1234',
+    })
+    vi.mocked(clearSearchApiKey).mockResolvedValue({
+      provider: 'tavily',
+      baseUrl: 'https://api.tavily.com',
+      enabled: false,
+      hasApiKey: false,
+      apiKeyPreview: '',
+    })
   })
 
-  it('loads settings and keeps the secret out of the editable draft', async () => {
+  it('loads settings and keeps the secret out of the editable drafts', async () => {
     const store = useAiSettingsStore()
 
     await store.load()
 
     expect(store.enabled).toBe(true)
+    expect(store.searchEnabled).toBe(true)
     expect(store.draft.apiKey).toBe('')
+    expect(store.searchDraft.apiKey).toBe('')
     expect(store.statusLabel).toBe('导入和解析均已启用')
   })
 
@@ -77,5 +110,24 @@ describe('ai settings store', () => {
     expect(store.settings?.hasApiKey).toBe(false)
     expect(store.draft.enabled).toBe(false)
     expect(store.draft.reviewEnabled).toBe(false)
+  })
+
+  it('saves and clears Tavily search settings separately', async () => {
+    const store = useAiSettingsStore()
+    await store.load()
+
+    store.searchDraft.enabled = true
+    await store.saveSearch()
+
+    expect(saveSearchSettings).toHaveBeenCalledWith({
+      baseUrl: 'https://api.tavily.com',
+      enabled: true,
+    })
+
+    await store.clearSearchKey()
+
+    expect(clearSearchApiKey).toHaveBeenCalled()
+    expect(store.searchSettings?.hasApiKey).toBe(false)
+    expect(store.searchDraft.enabled).toBe(false)
   })
 })

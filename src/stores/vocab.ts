@@ -31,6 +31,7 @@ import {
 type BookDraft = {
   name: string
   description: string
+  language: string
 }
 
 const WORD_PAGE_SIZE = 80
@@ -92,10 +93,12 @@ export const useVocabStore = defineStore('vocab', {
     newBookDraft: {
       name: '',
       description: '',
+      language: '英语',
     },
     bookDraft: {
       name: '',
       description: '',
+      language: '英语',
     },
     overview: null,
     words: [],
@@ -163,6 +166,13 @@ export const useVocabStore = defineStore('vocab', {
     wordDisplayLabel(state): string {
       if (!state.wordTotal) return '0 个结果'
       return `已显示 ${state.words.length} / ${state.wordTotal} 个`
+    },
+    selectedLanguageLabel(state): string {
+      const book = state.books.find((item) => item.id === state.selectedBookId)
+      return displayLanguage(book?.language)
+    },
+    targetTermLabel(): string {
+      return `${this.selectedLanguageLabel}词条`
     },
     explanationForItem: (state) => (itemId: string): string => {
       return state.studyExplanations[itemId] ?? ''
@@ -232,6 +242,7 @@ export const useVocabStore = defineStore('vocab', {
       this.bookDraft = {
         name: book?.name ?? '',
         description: book?.description ?? '',
+        language: displayLanguage(book?.language),
       }
     },
 
@@ -243,7 +254,7 @@ export const useVocabStore = defineStore('vocab', {
         const book = await createBook(this.newBookDraft)
         this.books = await fetchBooks()
         this.selectedBookId = book.id
-        this.newBookDraft = { name: '', description: '' }
+        this.newBookDraft = { name: '', description: '', language: '英语' }
         this.wordQuery = ''
         await this.refreshSelectedBookData()
       } catch (error) {
@@ -386,7 +397,7 @@ export const useVocabStore = defineStore('vocab', {
 
       const toast = useToastStore()
       this.generatingPhonetics = true
-      this.phoneticStatus = options.auto ? '导入完成，正在自动补全缺失音标...' : '正在生成缺失音标...'
+      this.phoneticStatus = options.auto ? '导入完成，正在自动补全缺失读音...' : '正在生成缺失读音...'
       this.error = ''
 
       try {
@@ -410,18 +421,18 @@ export const useVocabStore = defineStore('vocab', {
             break
           }
 
-          this.phoneticStatus = `正在生成音标：已补全 ${totalUpdated} 个，剩余 ${result.remainingCount} 个。`
+          this.phoneticStatus = `正在生成读音：已补全 ${totalUpdated} 个，剩余 ${result.remainingCount} 个。`
         }
 
         if (totalRequested === 0) {
-          this.phoneticStatus = '当前词库没有缺失音标的单词。'
+          this.phoneticStatus = '当前词库没有缺失读音的词条。'
           toast.info(this.phoneticStatus)
         } else if (remainingCount === 0) {
-          this.phoneticStatus = `已补全 ${totalUpdated} 个音标，跳过 ${totalSkipped} 个。`
-          toast.success(options.auto ? `导入完成，已自动补全 ${totalUpdated} 个音标。` : this.phoneticStatus)
+          this.phoneticStatus = `已补全 ${totalUpdated} 个读音，跳过 ${totalSkipped} 个。`
+          toast.success(options.auto ? `导入完成，已自动补全 ${totalUpdated} 个读音。` : this.phoneticStatus)
         } else {
-          this.phoneticStatus = `已补全 ${totalUpdated} 个音标，仍有 ${remainingCount} 个未补全。`
-          toast.info(stalled ? `${this.phoneticStatus} 本批没有返回可用音标。` : this.phoneticStatus)
+          this.phoneticStatus = `已补全 ${totalUpdated} 个读音，仍有 ${remainingCount} 个未补全。`
+          toast.info(stalled ? `${this.phoneticStatus} 本批没有返回可用读音。` : this.phoneticStatus)
         }
 
         if (bookId === this.selectedBookId) {
@@ -568,6 +579,13 @@ function sanitizeFileName(value: string): string {
     .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '-')
     .replace(/\s+/g, ' ')
   return cleaned || 'vocab'
+}
+
+function displayLanguage(language?: string): string {
+  const value = language?.trim()
+  if (!value) return '自定义语言'
+  if (value === 'en') return '英语'
+  return value
 }
 
 function downloadJson(fileName: string, payload: unknown) {

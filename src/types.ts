@@ -176,6 +176,7 @@ export type StudyItem = {
   id: string
   wordId: string
   mode: StudyItemMode
+  language?: string
   prompt: string
   choices: string[]
   word: Pick<WordEntry, 'id' | 'word' | 'phonetic' | 'partOfSpeech' | 'meaningZh' | 'exampleEn' | 'exampleZh'>
@@ -227,6 +228,22 @@ export type AiSettingsDraft = {
   reviewEnabled: boolean
 }
 
+export type SearchSettings = {
+  provider: 'tavily'
+  baseUrl: string
+  enabled: boolean
+  hasApiKey: boolean
+  apiKeyPreview: string
+  createdAt?: number
+  updatedAt?: number
+}
+
+export type SearchSettingsDraft = {
+  apiKey: string
+  baseUrl: string
+  enabled: boolean
+}
+
 export type ImportTargetMode = 'new_book' | 'merge_current'
 
 export type ImportJob = {
@@ -261,4 +278,58 @@ export type VocabBookExport = {
   exportedAt: number
   wordCount: number
   words: WordDraft[]
+}
+
+export type AiVocabLevel = '入门' | '初级' | '中级' | '高级' | '专业'
+
+export type AiVocabGenerationMode = 'quick' | 'chat'
+
+export type AiVocabChatMessage = {
+  id?: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt?: number
+}
+
+export type AiVocabResearchSource = {
+  title: string
+  url: string
+  content: string
+  publishedDate?: string
+  score?: number
+}
+
+export type AiVocabProfile = {
+  language: string
+  topic: string
+  level: AiVocabLevel
+  scenario: string
+  wordCount: number
+  bookName: string
+  mode?: AiVocabGenerationMode
+  retrievalEnabled?: boolean
+  conversation?: AiVocabChatMessage[]
+  researchSources?: AiVocabResearchSource[]
+}
+
+export type AiVocabConversationPlan = {
+  message: string
+  questions: string[]
+  ready: boolean
+  profile: Partial<AiVocabProfile>
+}
+
+export type AiVocabResearchResult = {
+  query: string
+  answer: string
+  provider: 'tavily'
+  sources: AiVocabResearchSource[]
+}
+
+export type AiVocabDraft = {
+  draftId: string
+  provider: 'deepseek'
+  profile: AiVocabProfile
+  words: WordDraft[]
+  createdAt: number
 }
