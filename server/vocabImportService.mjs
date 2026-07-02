@@ -1,15 +1,12 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { getActiveAiSettings } from './apiSettingsService.mjs'
-import { adaptVocabularyWithDeepSeek } from './aiProviders/deepseek.mjs'
 import { extractTextFromFile } from './fileTextExtractor.mjs'
 
 const TARGET_MODES = new Set(['new_book', 'merge_current'])
 const POS_PATTERN = /^(n|v|adj|adv|prep|conj|pron|num|abbr|名|动|形|副|介|连|代|数)\.?$/i
 
-export async function importVocabulary(db, input, options = {}) {
+export async function importVocabulary(db, input) {
   const targetMode = TARGET_MODES.has(input.targetMode) ? input.targetMode : 'new_book'
-  const aiAdapter = options.aiAdapter ?? adaptVocabularyWithDeepSeek
   const language = cleanLanguage(input.language, 'en')
   const context = {
     sourceFile: input.file?.originalname ?? 'uploaded file',
@@ -28,15 +25,12 @@ export async function importVocabulary(db, input, options = {}) {
       throw createHttpError(400, '文件中没有可导入的文本')
     }
 
-    const aiSettings = getActiveAiSettings(db)
-    context.provider = aiSettings ? 'deepseek' : 'local'
-    const rawEntries = aiSettings
-      ? await runAiAdapter(aiAdapter, extracted.text, extracted.sourceFile, aiSettings, language)
-      : parseVocabularyText(extracted.text)
+    context.provider = 'local'
+    const rawEntries = parseVocabularyText(extracted.text)
 
     const entries = normalizeImportedWords(rawEntries)
     if (!entries.length) {
-      throw createHttpError(400, context.provider === 'deepseek' ? 'AI 未返回有效词条' : '未从文本中识别到有效词条')
+      throw createHttpError(400, '未从文本中识别到有效词条')
     }
 
     const book = resolveTargetBook(db, {
@@ -168,15 +162,6 @@ export function normalizeImportedWords(rawEntries) {
   }
 
   return entries
-}
-
-function runAiAdapter(aiAdapter, text, sourceFile, settings, language) {
-  return aiAdapter({
-    text,
-    sourceFile,
-    settings,
-    language,
-  })
 }
 
 function resolveTargetBook(db, { targetMode, bookId, bookName, language, description }) {

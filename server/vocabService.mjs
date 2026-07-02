@@ -340,6 +340,151 @@ export function applyGeneratedPhonetics(db, bookId, phonetics = []) {
   }
 }
 
+export function listWordsNeedingRepair(db, bookId, limit = 40) {
+  const book = db.prepare('SELECT id FROM word_books WHERE id = ?').get(bookId)
+  if (!book) throw createHttpError(404, '词库不存在')
+
+  const rows = db.prepare(`
+    SELECT
+      w.*,
+      p.attempts,
+      p.correct_count,
+      p.wrong_count,
+      p.mastery,
+      p.last_correct,
+      p.last_answer,
+      p.last_studied_at,
+      p.updated_at AS progress_updated_at
+    FROM words w
+    LEFT JOIN word_progress p ON p.word_id = w.id
+    WHERE w.book_id = ?
+      AND w.enabled = 1
+      AND (
+        TRIM(w.meaning_zh) = ''
+        OR TRIM(w.phonetic) = ''
+        OR TRIM(w.part_of_speech) = ''
+        OR TRIM(w.example_en) = ''
+        OR TRIM(w.example_zh) = ''
+      )
+    ORDER BY
+      CASE WHEN TRIM(w.meaning_zh) = '' THEN 0 ELSE 1 END,
+      LOWER(w.word)
+    LIMIT ?
+  `).all(bookId, clampNumber(limit, 1, 5000))
+
+  return rows.map(mapWord)
+}
+
+export function countWordsNeedingRepair(db, bookId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM words
+    WHERE book_id = ?
+      AND enabled = 1
+      AND (
+        TRIM(meaning_zh) = ''
+        OR TRIM(phonetic) = ''
+        OR TRIM(part_of_speech) = ''
+        OR TRIM(example_en) = ''
+        OR TRIM(example_zh) = ''
+      )
+  `).get(bookId)
+
+  return row?.total ?? 0
+}
+
+export function applyWordRepairs(db, bookId, repairs = []) {
+  const entries = normalizeWordRepairEntries(repairs)
+  if (!entries.length) {
+    return { updatedCount: 0, skippedCount: 0, words: [] }
+  }
+
+  const updatedWords = []
+  let skippedCount = 0
+  const now = Date.now()
+  const load = db.prepare('SELECT * FROM words WHERE id = ? AND book_id = ? AND enabled = 1')
+  const update = db.prepare(`
+    UPDATE words
+    SET phonetic = ?,
+      part_of_speech = ?,
+      meaning_zh = ?,
+      example_en = ?,
+      example_zh = ?,
+      tags = ?,
+      difficulty = ?,
+      updated_at = ?
+    WHERE id = ?
+      AND book_id = ?
+      AND enabled = 1
+  `)
+
+  const tx = db.transaction(() => {
+    for (const entry of entries) {
+      const current = load.get(entry.wordId, bookId)
+      if (!current) {
+        skippedCount += 1
+        continue
+      }
+
+      const next = {
+        phonetic: fieldOrRepair(current.phonetic, entry.phonetic),
+        partOfSpeech: fieldOrRepair(current.part_of_speech, entry.partOfSpeech),
+        meaningZh: fieldOrRepair(current.meaning_zh, entry.meaningZh),
+        exampleEn: fieldOrRepair(current.example_en, entry.exampleEn),
+        exampleZh: fieldOrRepair(current.example_zh, entry.exampleZh),
+        tags: fieldOrRepair(current.tags, entry.tags),
+        difficulty: clampNumber(current.difficulty || entry.difficulty || 1, 1, 5),
+      }
+
+      const changed = next.phonetic !== current.phonetic
+        || next.partOfSpeech !== current.part_of_speech
+        || next.meaningZh !== current.meaning_zh
+        || next.exampleEn !== current.example_en
+        || next.exampleZh !== current.example_zh
+        || next.tags !== current.tags
+        || next.difficulty !== current.difficulty
+
+      if (!changed || !current.word || !next.meaningZh) {
+        skippedCount += 1
+        continue
+      }
+
+      const result = update.run(
+        next.phonetic,
+        next.partOfSpeech,
+        next.meaningZh,
+        next.exampleEn,
+        next.exampleZh,
+        next.tags,
+        next.difficulty,
+        now,
+        entry.wordId,
+        bookId,
+      )
+
+      if (!result.changes) {
+        skippedCount += 1
+        continue
+      }
+
+      const word = getWordById(db, entry.wordId)
+      if (word) updatedWords.push(word)
+    }
+
+    if (updatedWords.length) {
+      db.prepare('UPDATE word_books SET updated_at = ? WHERE id = ?').run(now, bookId)
+    }
+  })
+
+  tx()
+
+  return {
+    updatedCount: updatedWords.length,
+    skippedCount,
+    words: updatedWords,
+  }
+}
+
 export function startStudySession(db, input) {
   const bookId = stringValue(input.bookId, BASIC_BOOK_ID)
   const mode = STUDY_MODES.has(input.mode) ? input.mode : 'mixed'
@@ -684,6 +829,45 @@ function normalizePhoneticEntries(entries) {
   }
 
   return normalized
+}
+
+function normalizeWordRepairEntries(entries) {
+  const seen = new Set()
+  const normalized = []
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const wordId = stringValue(entry.wordId ?? entry.id).trim()
+    if (!wordId || seen.has(wordId)) continue
+
+    const patch = {
+      wordId,
+      phonetic: stringValue(entry.phonetic).trim(),
+      partOfSpeech: stringValue(entry.partOfSpeech ?? entry.pos).trim(),
+      meaningZh: stringValue(entry.meaningZh ?? entry.meaning ?? entry.translation).trim(),
+      exampleEn: stringValue(entry.exampleEn).trim(),
+      exampleZh: stringValue(entry.exampleZh).trim(),
+      tags: stringValue(entry.tags).trim(),
+      difficulty: clampNumber(entry.difficulty ?? 1, 1, 5),
+    }
+
+    const hasPatch = patch.phonetic
+      || patch.partOfSpeech
+      || patch.meaningZh
+      || patch.exampleEn
+      || patch.exampleZh
+      || patch.tags
+
+    if (!hasPatch) continue
+    seen.add(wordId)
+    normalized.push(patch)
+  }
+
+  return normalized
+}
+
+function fieldOrRepair(current, repair) {
+  const value = stringValue(current).trim()
+  return value || stringValue(repair).trim()
 }
 
 function stringValue(value, fallback = '') {

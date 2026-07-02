@@ -11,18 +11,24 @@ import {
   saveAiSettings,
   saveSearchSettings,
 } from './apiSettingsService.mjs'
-import { generatePhoneticsWithDeepSeek, generateStudyExplanationsWithDeepSeek } from './aiProviders/deepseek.mjs'
+import {
+  generatePhoneticsWithDeepSeek,
+  generateStudyExplanationsWithDeepSeek,
+  generateWordRepairsWithDeepSeek,
+} from './aiProviders/deepseek.mjs'
 import {
   commitVocabularyDraft,
   generateVocabularyDraft,
-  generateVocabularyDraftBatches,
   planVocabularyConversation,
   researchVocabularyContext,
 } from './aiVocabGeneratorService.mjs'
+import { createAiJobService } from './aiJobService.mjs'
 import { importVocabulary } from './vocabImportService.mjs'
 import {
   applyGeneratedPhonetics,
+  applyWordRepairs,
   countWordsMissingPhonetics,
+  countWordsNeedingRepair,
   createBook,
   createWord,
   deleteBook,
@@ -33,6 +39,7 @@ import {
   getSession,
   getSessionAnswers,
   listBooks,
+  listWordsNeedingRepair,
   listWordsMissingPhonetics,
   listWords,
   startStudySession,
@@ -51,7 +58,14 @@ const upload = multer({
 export function createApp(options = {}) {
   const app = express()
   const db = options.db ?? initializeDatabase(options.dbPath)
+  const aiJobs = options.aiJobs ?? createAiJobService(db, {
+    generatorAdapter: options.aiVocabAdapter,
+    wordRepairAdapter: options.wordRepairAdapter,
+    defaultConcurrency: options.aiJobConcurrency,
+    maxConcurrency: options.aiJobMaxConcurrency,
+  })
   app.locals.db = db
+  app.locals.aiJobs = aiJobs
 
   app.use(express.json({ limit: '12mb' }))
 
@@ -144,11 +158,48 @@ export function createApp(options = {}) {
     }
   })
 
-  app.post('/api/ai/vocab/stream', async (request, response) => {
-    let closed = false
-    response.on('close', () => {
-      closed = true
-    })
+  app.post('/api/ai/vocab/commit', (request, response, next) => {
+    try {
+      response.status(201).json(commitVocabularyDraft(db, request.body ?? {}))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/ai/jobs', async (request, response, next) => {
+    try {
+      const job = await aiJobs.createJob(request.body ?? {})
+      response.status(201).json({ job })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/ai/jobs/:jobId', (request, response) => {
+    const job = aiJobs.getJob(request.params.jobId)
+    if (!job) {
+      response.status(404).json({ error: 'AI job not found' })
+      return
+    }
+    response.json({ job })
+  })
+
+  app.post('/api/ai/jobs/:jobId/cancel', (request, response) => {
+    const job = aiJobs.cancelJob(request.params.jobId)
+    if (!job) {
+      response.status(404).json({ error: 'AI job not found' })
+      return
+    }
+    response.json({ job })
+  })
+
+  app.get('/api/ai/jobs/:jobId/events', (request, response) => {
+    const job = aiJobs.getJob(request.params.jobId)
+    if (!job) {
+      response.status(404).json({ error: 'AI job not found' })
+      return
+    }
+
     response.status(200)
     response.set({
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -158,36 +209,39 @@ export function createApp(options = {}) {
     })
     response.flushHeaders?.()
 
-    const keepAlive = setInterval(() => {
-      if (!closed && !response.writableEnded) {
-        response.write(': keep-alive\n\n')
+    let keepAlive
+    let unsubscribe = () => {}
+    const closeStream = () => {
+      if (keepAlive) clearInterval(keepAlive)
+      unsubscribe()
+      if (!response.writableEnded) response.end()
+    }
+    const send = (event, data) => {
+      const written = writeSseEvent(response, event, data)
+      if (!written || event === 'done' || event === 'error') {
+        closeStream()
       }
+      return written
+    }
+    unsubscribe = aiJobs.subscribe(request.params.jobId, send)
+    const replayEnded = aiJobs.replay(job, send)
+
+    keepAlive = setInterval(() => {
+      if (!response.writableEnded && !response.destroyed) response.write(': keep-alive\n\n')
     }, 15000)
     keepAlive.unref?.()
 
-    try {
-      for await (const event of generateVocabularyDraftBatches(db, request.body ?? {}, {
-        generatorAdapter: options.aiVocabAdapter,
-        shouldStop: () => closed || response.writableEnded,
-      })) {
-        if (!writeSseEvent(response, event.type, event.data)) break
-      }
-    } catch (error) {
-      writeSseEvent(response, 'error', {
-        error: error.message || 'AI 生成失败',
-      })
-    } finally {
+    if (replayEnded) {
       clearInterval(keepAlive)
-      if (!response.writableEnded) response.end()
+      unsubscribe()
+      response.end()
+      return
     }
-  })
 
-  app.post('/api/ai/vocab/commit', (request, response, next) => {
-    try {
-      response.status(201).json(commitVocabularyDraft(db, request.body ?? {}))
-    } catch (error) {
-      next(error)
-    }
+    response.on('close', () => {
+      clearInterval(keepAlive)
+      unsubscribe()
+    })
   })
 
   app.patch('/api/books/:bookId', (request, response, next) => {
@@ -243,6 +297,33 @@ export function createApp(options = {}) {
       response.json({
         requestedCount: words.length,
         remainingCount: countWordsMissingPhonetics(db, request.params.bookId),
+        ...result,
+      })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/books/:bookId/repair', async (request, response, next) => {
+    try {
+      const settings = getAiSettingsWithKey(db)
+      if (!settings) {
+        throw createHttpError(400, '需要先保存 DeepSeek API Key')
+      }
+
+      const words = listWordsNeedingRepair(db, request.params.bookId, request.body?.limit)
+      if (!words.length) {
+        response.json({ requestedCount: 0, updatedCount: 0, skippedCount: 0, remainingCount: 0, words: [] })
+        return
+      }
+
+      const adapter = options.wordRepairAdapter ?? generateWordRepairsWithDeepSeek
+      const book = getBookById(db, request.params.bookId)
+      const repairs = await adapter({ words, language: book?.language, settings })
+      const result = applyWordRepairs(db, request.params.bookId, repairs)
+      response.json({
+        requestedCount: words.length,
+        remainingCount: countWordsNeedingRepair(db, request.params.bookId),
         ...result,
       })
     } catch (error) {
@@ -341,8 +422,6 @@ export function createApp(options = {}) {
         bookId: request.body?.bookId,
         bookName: request.body?.bookName,
         language: request.body?.language,
-      }, {
-        aiAdapter: options.aiAdapter,
       })
       response.status(201).json(result)
     } catch (error) {

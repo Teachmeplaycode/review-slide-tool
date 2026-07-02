@@ -7,10 +7,10 @@ import {
   fetchSearchSettings,
   saveAiSettings,
   saveSearchSettings,
-} from '../services/api/settingsApi'
-import { useAiSettingsStore } from './aiSettings'
+} from '../../src/services/api/settingsApi'
+import { useAiSettingsStore } from '../../src/stores/aiSettings'
 
-vi.mock('../services/api/settingsApi', () => ({
+vi.mock('../../src/services/api/settingsApi', () => ({
   clearAiApiKey: vi.fn(),
   clearSearchApiKey: vi.fn(),
   fetchAiSettings: vi.fn(),

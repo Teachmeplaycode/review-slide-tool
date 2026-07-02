@@ -21,12 +21,14 @@ import {
   fetchOverview,
   fetchWords,
   generateBookPhonetics,
+  repairBookWords,
   requestStudyExplanations,
   startStudy,
   submitAnswer,
   updateBook,
   updateWord,
 } from '../services/api/vocabApi'
+import { createAiJob, subscribeAiJobEvents } from '../services/api/aiVocabApi'
 
 type BookDraft = {
   name: string
@@ -37,6 +39,8 @@ type BookDraft = {
 const WORD_PAGE_SIZE = 80
 const PHONETIC_BATCH_SIZE = 120
 const MAX_PHONETIC_BATCHES = 100
+const REPAIR_BATCH_SIZE = 40
+const MAX_REPAIR_BATCHES = 100
 
 type VocabState = {
   slideIndex: number
@@ -70,6 +74,8 @@ type VocabState = {
   exportingBook: boolean
   generatingPhonetics: boolean
   phoneticStatus: string
+  repairingWords: boolean
+  repairStatus: string
   error: string
 }
 
@@ -129,6 +135,8 @@ export const useVocabStore = defineStore('vocab', {
     exportingBook: false,
     generatingPhonetics: false,
     phoneticStatus: '',
+    repairingWords: false,
+    repairStatus: '',
     error: '',
   }),
 
@@ -416,7 +424,7 @@ export const useVocabStore = defineStore('vocab', {
 
           if (result.requestedCount === 0 || result.remainingCount === 0) break
 
-          if (result.updatedCount === 0 && result.skippedCount === 0) {
+          if (result.updatedCount === 0) {
             stalled = true
             break
           }
@@ -446,6 +454,129 @@ export const useVocabStore = defineStore('vocab', {
       } finally {
         this.generatingPhonetics = false
       }
+    },
+
+    async repairSelectedBookWithAi(options: { bookId?: string } = {}) {
+      const bookId = options.bookId ?? this.selectedBookId
+      if (!bookId) return
+
+      const toast = useToastStore()
+      this.repairingWords = true
+      this.repairStatus = '正在检查词库缺失字段...'
+      this.phoneticStatus = ''
+      this.error = ''
+
+      try {
+        let totalRequested = 0
+        let totalUpdated = 0
+        let totalSkipped = 0
+        let remainingCount = 0
+        let stalled = false
+
+        for (let batch = 0; batch < MAX_REPAIR_BATCHES; batch += 1) {
+          const result = await repairBookWords(bookId, { limit: REPAIR_BATCH_SIZE })
+          totalRequested += result.requestedCount
+          totalUpdated += result.updatedCount
+          totalSkipped += result.skippedCount
+          remainingCount = result.remainingCount
+
+          if (result.requestedCount === 0 || result.remainingCount === 0) break
+
+          if (result.updatedCount === 0 && result.skippedCount === 0) {
+            stalled = true
+            break
+          }
+
+          this.repairStatus = `正在修复词库：已修复 ${totalUpdated} 个，剩余 ${result.remainingCount} 个。`
+        }
+
+        if (totalRequested === 0) {
+          this.repairStatus = '当前词库没有需要 AI 修复的缺失字段。'
+          toast.info(this.repairStatus)
+        } else if (remainingCount === 0) {
+          this.repairStatus = `已修复 ${totalUpdated} 个词条，跳过 ${totalSkipped} 个。`
+          toast.success(this.repairStatus)
+        } else {
+          this.repairStatus = `已修复 ${totalUpdated} 个词条，仍有 ${remainingCount} 个待修复。`
+          toast.info(stalled ? `${this.repairStatus} 本批没有返回可用修复。` : this.repairStatus)
+        }
+
+        if (bookId === this.selectedBookId) {
+          await this.refreshSelectedBookData()
+        } else {
+          this.books = await fetchBooks()
+        }
+      } catch (error) {
+        this.error = errorMessage(error)
+        toast.error(this.error)
+      } finally {
+        this.repairingWords = false
+      }
+    },
+
+    async repairSelectedBookWithAiJob(options: { bookId?: string } = {}) {
+      const bookId = options.bookId ?? this.selectedBookId
+      if (!bookId) return
+
+      const toast = useToastStore()
+      this.repairingWords = true
+      this.repairStatus = '正在创建 AI 质检任务...'
+      this.phoneticStatus = ''
+      this.error = ''
+
+      try {
+        const { job } = await createAiJob({ type: 'repair_words', payload: { bookId } })
+
+        await subscribeAiJobEvents(job.id, {
+          onStart: (event) => {
+            this.repairStatus = `AI 质检任务已启动，并发 ${event.dynamicConcurrency ?? 16}，正在扫描词库。`
+          },
+          onProgress: (event) => {
+            const repaired = event.repairedCount ?? event.generatedCount ?? 0
+            const remaining = event.remainingCount ?? 0
+            this.repairStatus = `正在并发修复：已修复 ${repaired} 个，剩余 ${remaining} 个；运行中 ${event.activeRequests ?? 0} 个请求。`
+          },
+          onRetry: (event) => {
+            this.repairStatus = `DeepSeek 响应较慢，已自动降速重试；当前并发 ${event.dynamicConcurrency ?? 1}。`
+          },
+          onBatch: (event) => {
+            const updatedWords = event.words as unknown as WordEntry[]
+            this.replaceVisibleWords(updatedWords)
+            const repaired = event.repairedCount ?? event.generatedCount ?? updatedWords.length
+            const remaining = event.remainingCount ?? 0
+            this.repairStatus = `刚追加修复 ${updatedWords.length} 个词条；累计 ${repaired} 个，剩余 ${remaining} 个。`
+          },
+          onDone: (event) => {
+            const repaired = event.repairedCount ?? event.generatedCount ?? 0
+            this.repairStatus = event.status === 'canceled'
+              ? `AI 质检已取消，已保留 ${repaired} 个修复结果。`
+              : `AI 质检完成，已修复 ${repaired} 个词条。`
+          },
+        })
+
+        if (bookId === this.selectedBookId) {
+          await this.refreshSelectedBookData()
+        } else {
+          this.books = await fetchBooks()
+        }
+        toast.success(this.repairStatus)
+      } catch (error) {
+        this.error = errorMessage(error)
+        toast.error(this.error)
+      } finally {
+        this.repairingWords = false
+      }
+    },
+
+    replaceVisibleWords(updatedWords: WordEntry[]) {
+      if (!updatedWords.length) return
+      const byId = new Map(updatedWords.map((word) => [word.id, word]))
+      this.words = this.words.map((word) => byId.get(word.id) ?? word)
+      this.books = this.books.map((book) => (
+        book.id === this.selectedBookId
+          ? { ...book, updatedAt: Date.now() }
+          : book
+      ))
     },
 
     setMode(mode: StudyMode) {

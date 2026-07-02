@@ -1,18 +1,18 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { commitAiVocabDraft, planAiVocabConversation, researchAiVocabContext, streamAiVocabDraft } from '../services/api/aiVocabApi'
-import { useAiVocabGeneratorStore } from './aiVocabGenerator'
+import { commitAiVocabDraft, planAiVocabConversation, researchAiVocabContext, streamAiVocabDraft } from '../../src/services/api/aiVocabApi'
+import { useAiVocabGeneratorStore } from '../../src/stores/aiVocabGenerator'
 
 const selectBookMock = vi.hoisted(() => vi.fn())
 
-vi.mock('../services/api/aiVocabApi', () => ({
+vi.mock('../../src/services/api/aiVocabApi', () => ({
   commitAiVocabDraft: vi.fn(),
   planAiVocabConversation: vi.fn(),
   researchAiVocabContext: vi.fn(),
   streamAiVocabDraft: vi.fn(),
 }))
 
-vi.mock('./vocab', () => ({
+vi.mock('../../src/stores/vocab', () => ({
   useVocabStore: () => ({
     selectedBookId: 'book_current',
     selectBook: selectBookMock,

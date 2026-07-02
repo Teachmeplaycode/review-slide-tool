@@ -26,7 +26,10 @@ const libraryIntro = computed(() => {
     <div class="slide-inner home-intro">
       <div class="home-intro__copy">
         <span class="section-label">Vocabulary Library</span>
-        <TypewriterText as="h1" :text="productTitle" :active="active" :duration="0.72" />
+        <div class="home-title-lockup">
+          <img class="home-title-logo" src="/favicon.svg" alt="万汇言" />
+          <TypewriterText as="h1" :text="productTitle" :active="active" :duration="0.72" />
+        </div>
         <TypewriterText
           as="p"
           :text="libraryIntro"

@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { StudyItem, StudySession, WordBook, WordEntry } from '../types'
+import type { StudyItem, StudySession, WordBook, WordEntry } from '../../src/types'
 import {
   createBook,
   deleteBook,
@@ -9,14 +9,16 @@ import {
   fetchOverview,
   fetchWords,
   generateBookPhonetics,
+  repairBookWords,
   requestStudyExplanations,
   startStudy,
   submitAnswer,
   updateBook,
-} from '../services/api/vocabApi'
-import { useVocabStore } from './vocab'
+} from '../../src/services/api/vocabApi'
+import { createAiJob, subscribeAiJobEvents } from '../../src/services/api/aiVocabApi'
+import { useVocabStore } from '../../src/stores/vocab'
 
-vi.mock('../services/api/vocabApi', () => ({
+vi.mock('../../src/services/api/vocabApi', () => ({
   createBook: vi.fn(),
   createWord: vi.fn(),
   deleteBook: vi.fn(),
@@ -26,11 +28,17 @@ vi.mock('../services/api/vocabApi', () => ({
   fetchOverview: vi.fn(),
   fetchWords: vi.fn(),
   generateBookPhonetics: vi.fn(),
+  repairBookWords: vi.fn(),
   requestStudyExplanations: vi.fn(),
   startStudy: vi.fn(),
   submitAnswer: vi.fn(),
   updateBook: vi.fn(),
   updateWord: vi.fn(),
+}))
+
+vi.mock('../../src/services/api/aiVocabApi', () => ({
+  createAiJob: vi.fn(),
+  subscribeAiJobEvents: vi.fn(),
 }))
 
 describe('vocab store', () => {
@@ -78,6 +86,82 @@ describe('vocab store', () => {
       skippedCount: 0,
       remainingCount: 0,
       words: [word],
+    })
+    vi.mocked(repairBookWords).mockResolvedValue({
+      requestedCount: 1,
+      updatedCount: 1,
+      skippedCount: 0,
+      remainingCount: 0,
+      words: [word],
+    })
+    vi.mocked(createAiJob).mockResolvedValue({
+      job: {
+        id: 'job_1',
+        type: 'repair_words',
+        status: 'queued',
+        payload: { bookId: book.id },
+        progress: {
+          status: 'queued',
+          requestedCount: 1,
+          generatedCount: 0,
+          repairedCount: 0,
+          generatedBatches: 0,
+          totalBatches: 1,
+          currentBatch: 0,
+          requestedBatchSize: 80,
+          activeRequests: 0,
+          completedRequests: 0,
+          retryCount: 0,
+          retrying: false,
+          dynamicConcurrency: 16,
+          maxConcurrency: 32,
+        },
+        result: [],
+        errorMessage: '',
+        cancelRequested: false,
+        createdAt: 1,
+        startedAt: null,
+        completedAt: null,
+        updatedAt: 1,
+      },
+    })
+    vi.mocked(subscribeAiJobEvents).mockImplementation(async (_jobId, handlers) => {
+      const safeHandlers = handlers ?? {}
+      safeHandlers.onStart?.({
+        requestedCount: 1,
+        generatedCount: 0,
+        generatedBatches: 0,
+        totalBatches: 1,
+        dynamicConcurrency: 16,
+      })
+      safeHandlers.onBatch?.({
+        draftId: 'job_1',
+        provider: 'deepseek',
+        profile: {
+          language: book.language,
+          topic: book.name,
+          level: 'advanced' as never,
+          scenario: '',
+          wordCount: 1,
+          bookName: book.name,
+        },
+        words: [word],
+        createdAt: 1,
+        requestedCount: 1,
+        generatedCount: 1,
+        generatedBatches: 1,
+        totalBatches: 1,
+        repairedCount: 1,
+        remainingCount: 0,
+      })
+      safeHandlers.onDone?.({
+        requestedCount: 1,
+        generatedCount: 1,
+        generatedBatches: 1,
+        totalBatches: 1,
+        repairedCount: 1,
+        status: 'succeeded',
+      })
     })
     vi.mocked(requestStudyExplanations).mockResolvedValue({
       skipped: false,
@@ -178,6 +262,31 @@ describe('vocab store', () => {
 
     expect(generateBookPhonetics).toHaveBeenCalledTimes(2)
     expect(store.phoneticStatus).toBe('已补全 130 个读音，跳过 0 个。')
+  })
+
+  it('repairs incomplete words with AI in batches', async () => {
+    const store = useVocabStore()
+    await store.init()
+
+    await store.repairSelectedBookWithAi()
+
+    expect(repairBookWords).toHaveBeenCalledWith(book.id, { limit: 40 })
+    expect(store.repairStatus).toBe('已修复 1 个词条，跳过 0 个。')
+  })
+
+  it('repairs incomplete words with the background AI job', async () => {
+    const store = useVocabStore()
+    await store.init()
+
+    await store.repairSelectedBookWithAiJob()
+
+    expect(createAiJob).toHaveBeenCalledWith({ type: 'repair_words', payload: { bookId: book.id } })
+    expect(subscribeAiJobEvents).toHaveBeenCalledWith('job_1', expect.objectContaining({
+      onBatch: expect.any(Function),
+      onDone: expect.any(Function),
+    }))
+    expect(repairBookWords).not.toHaveBeenCalled()
+    expect(store.repairingWords).toBe(false)
   })
 
   it('creates an empty book and selects it', async () => {

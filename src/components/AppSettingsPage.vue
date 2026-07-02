@@ -154,12 +154,12 @@ async function confirmDeleteSelectedBook() {
               <button
                 class="mini-command"
                 type="button"
-                :disabled="!store.selectedBookId || store.generatingPhonetics"
-                @click="store.generateMissingPhonetics()"
+                :disabled="!store.selectedBookId || store.repairingWords || store.generatingPhonetics"
+                @click="store.repairSelectedBookWithAiJob()"
               >
-                <Loader2 v-if="store.generatingPhonetics" :size="14" class="spin" />
+                <Loader2 v-if="store.repairingWords" :size="14" class="spin" />
                 <Sparkles v-else :size="14" />
-                {{ store.generatingPhonetics ? '生成中' : '生成缺失读音' }}
+                {{ store.repairingWords ? '检查中' : 'AI 检查并修复' }}
               </button>
             </header>
 
@@ -199,6 +199,7 @@ async function confirmDeleteSelectedBook() {
 
             <div class="workspace-messages">
               <p v-if="store.error" class="error-line">{{ store.error }}</p>
+              <p v-if="store.repairStatus" class="status-line">{{ store.repairStatus }}</p>
               <p v-if="store.phoneticStatus" class="status-line">{{ store.phoneticStatus }}</p>
             </div>
 

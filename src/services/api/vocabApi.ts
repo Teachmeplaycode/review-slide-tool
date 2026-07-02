@@ -5,6 +5,7 @@ import type {
   StudyOverview,
   StudySession,
   VocabBookExport,
+  VocabRepairResult,
   WordBook,
   WordDraft,
   WordEntry,
@@ -141,6 +142,16 @@ export async function generateBookPhonetics(
   return requestJson<GeneratePhoneticsResponse>(`/api/books/${encodeURIComponent(bookId)}/phonetics`, {
     method: 'POST',
     body: JSON.stringify({ limit: options.limit ?? 120 }),
+  })
+}
+
+export async function repairBookWords(
+  bookId: string,
+  options: { limit?: number } = {},
+): Promise<VocabRepairResult> {
+  return requestJson<VocabRepairResult>(`/api/books/${encodeURIComponent(bookId)}/repair`, {
+    method: 'POST',
+    body: JSON.stringify({ limit: options.limit ?? 40 }),
   })
 }
 

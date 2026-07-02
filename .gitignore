@@ -12,10 +12,12 @@ dist
 dist-ssr
 output
 .tmp
+example/
 data/*.sqlite
 data/*.sqlite-*
 *.local
-
+*.claude
+CLAUDE.md
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

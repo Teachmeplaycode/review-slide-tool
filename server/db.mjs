@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { BASIC_BOOK_ID, basicEnglishWords } from './seedWords.mjs'
+import { CET4_BOOK_ID, cet4Words } from './cet4SeedWords.mjs'
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -113,11 +114,27 @@ export function migrate(db) {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS ai_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      progress_json TEXT NOT NULL DEFAULT '{}',
+      result_json TEXT NOT NULL DEFAULT '[]',
+      error_message TEXT NOT NULL DEFAULT '',
+      cancel_requested INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_words_book_enabled ON words(book_id, enabled);
     CREATE INDEX IF NOT EXISTS idx_words_search ON words(word, meaning_zh);
     CREATE INDEX IF NOT EXISTS idx_progress_review ON word_progress(last_correct, mastery);
     CREATE INDEX IF NOT EXISTS idx_answers_session ON study_answers(session_id);
     CREATE INDEX IF NOT EXISTS idx_import_jobs_book ON import_jobs(target_book_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_jobs(status, updated_at);
   `)
 
   ensureColumn(db, 'api_settings', 'review_enabled', 'INTEGER NOT NULL DEFAULT 0')
@@ -131,21 +148,29 @@ function ensureColumn(db, tableName, columnName, definition) {
 
 export function seedDatabase(db) {
   const now = Date.now()
-  const bookExists = db.prepare('SELECT id FROM word_books WHERE id = ?').get(BASIC_BOOK_ID)
+  seedBook(db, {
+    id: BASIC_BOOK_ID,
+    name: '英语基础词库',
+    description: '课程设计内置基础英语单词，覆盖常见学习、生活、校园和表达场景。',
+    language: 'en',
+    words: basicEnglishWords,
+    now,
+  })
+  seedBook(db, {
+    id: CET4_BOOK_ID,
+    name: 'CET-4',
+    description: '内置大学英语四级高频词库，适合四级备考和基础词汇扩充。',
+    language: 'en',
+    words: cet4Words,
+    now: now + 1,
+  })
+}
 
-  if (!bookExists) {
-    db.prepare(`
-      INSERT INTO word_books (id, name, description, language, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      BASIC_BOOK_ID,
-      '英语基础词库',
-      '课程设计内置基础英语单词，覆盖常见学习、生活、校园和表达场景。',
-      'en',
-      now,
-      now,
-    )
-  }
+function seedBook(db, book) {
+  const insertBook = db.prepare(`
+    INSERT OR IGNORE INTO word_books (id, name, description, language, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
 
   const insertWord = db.prepare(`
     INSERT OR IGNORE INTO words (
@@ -167,10 +192,19 @@ export function seedDatabase(db) {
   `)
 
   const tx = db.transaction(() => {
-    for (const item of basicEnglishWords) {
+    insertBook.run(
+      book.id,
+      book.name,
+      book.description,
+      book.language,
+      book.now,
+      book.now,
+    )
+
+    for (const item of book.words) {
       insertWord.run(
         item.id,
-        BASIC_BOOK_ID,
+        book.id,
         item.word,
         item.phonetic,
         item.partOfSpeech,
@@ -179,15 +213,14 @@ export function seedDatabase(db) {
         item.exampleZh,
         item.tags,
         item.difficulty,
-        now,
-        now,
+        book.now,
+        book.now,
       )
     }
   })
 
   tx()
 }
-
 export function mapBook(row) {
   return {
     id: row.id,

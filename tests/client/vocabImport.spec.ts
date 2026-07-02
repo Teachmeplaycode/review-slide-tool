@@ -1,9 +1,9 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { importVocabulary } from '../services/api/importApi'
-import { useVocabImportStore } from './vocabImport'
+import { importVocabulary } from '../../src/services/api/importApi'
+import { useVocabImportStore } from '../../src/stores/vocabImport'
 
-vi.mock('../services/api/importApi', () => ({
+vi.mock('../../src/services/api/importApi', () => ({
   importVocabulary: vi.fn(),
 }))
 
@@ -75,4 +75,5 @@ describe('vocab import store', () => {
     expect(result?.importedCount).toBe(2)
     expect(store.result?.book.id).toBe('book_2')
   })
+
 })

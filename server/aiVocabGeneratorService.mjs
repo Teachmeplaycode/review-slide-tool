@@ -6,8 +6,6 @@ import { createHttpError, createVocabularyBookFromEntries, normalizeImportedWord
 
 const LEVELS = new Set(['入门', '初级', '中级', '高级', '专业'])
 const MAX_GENERATED_WORDS = 5000
-const FIRST_BATCH_SIZE = 10
-const NEXT_BATCH_SIZE = 10
 const MIN_TOPIC_LENGTH = 2
 
 export async function generateVocabularyDraft(db, input = {}, options = {}) {
@@ -76,133 +74,6 @@ export async function researchVocabularyContext(db, input = {}, options = {}) {
   }
 }
 
-export async function* generateVocabularyDraftBatches(db, input = {}, options = {}) {
-  const requestedCount = clampNumber(input.wordCount ?? input.count ?? 20, 5, MAX_GENERATED_WORDS)
-  const totalBatches = estimateBatchCount(requestedCount)
-  const initialExistingWords = normalizeExistingWords(input.existingWords)
-  const allWords = []
-  let generatedBatches = 0
-  let emptyBatches = 0
-  let draftId = ''
-  let createdAt = 0
-  let profile = null
-
-  yield {
-    type: 'start',
-    data: {
-      requestedCount,
-      generatedCount: 0,
-      generatedBatches: 0,
-      totalBatches,
-    },
-  }
-
-  while (allWords.length < requestedCount && emptyBatches < 3 && !options.shouldStop?.()) {
-    const remaining = requestedCount - allWords.length
-    const requestedBatchSize = generatedBatches === 0
-      ? Math.min(FIRST_BATCH_SIZE, remaining)
-      : Math.min(NEXT_BATCH_SIZE, remaining)
-    let draft = null
-    let nextWords = []
-    let usedBatchSize = requestedBatchSize
-    let lastError = null
-
-    for (const [attemptIndex, attemptBatchSize] of batchSizeAttempts(requestedBatchSize).entries()) {
-      if (options.shouldStop?.()) break
-
-      usedBatchSize = Math.min(attemptBatchSize, remaining)
-      yield {
-        type: 'progress',
-        data: {
-          requestedCount,
-          generatedCount: allWords.length,
-          generatedBatches,
-          totalBatches,
-          currentBatch: generatedBatches + 1,
-          requestedBatchSize: usedBatchSize,
-          retrying: attemptIndex > 0,
-        },
-      }
-
-      try {
-        const attemptDraft = await generateVocabularyDraft(db, {
-          ...input,
-          wordCount: usedBatchSize,
-          existingWords: [
-            ...initialExistingWords,
-            ...allWords.map((word) => word.word),
-          ],
-        }, {
-          ...options,
-          timeoutMs: batchTimeoutMs(usedBatchSize, attemptIndex),
-        })
-        const attemptWords = uniqueNewWords(allWords, attemptDraft.words).slice(0, remaining)
-
-        draft = attemptDraft
-        nextWords = attemptWords
-
-        if (nextWords.length || attemptIndex === batchSizeAttempts(requestedBatchSize).length - 1) {
-          break
-        }
-      } catch (error) {
-        lastError = error
-        if (attemptIndex === batchSizeAttempts(requestedBatchSize).length - 1) {
-          throw error
-        }
-      }
-    }
-
-    if (!draft) {
-      if (lastError) throw lastError
-      break
-    }
-
-    draftId ||= draft.draftId
-    createdAt ||= draft.createdAt
-    profile ||= {
-      ...draft.profile,
-      wordCount: requestedCount,
-      existingWords: initialExistingWords,
-    }
-
-    generatedBatches += 1
-
-    if (nextWords.length) {
-      allWords.push(...nextWords)
-      emptyBatches = 0
-    } else {
-      emptyBatches += 1
-    }
-
-    yield {
-      type: 'batch',
-      data: {
-        draftId,
-        provider: 'deepseek',
-        profile,
-        words: nextWords,
-        createdAt,
-        requestedCount,
-        generatedCount: allWords.length,
-        generatedBatches,
-        totalBatches,
-        requestedBatchSize: usedBatchSize,
-      },
-    }
-  }
-
-  yield {
-    type: 'done',
-    data: {
-      requestedCount,
-      generatedCount: allWords.length,
-      generatedBatches,
-      totalBatches,
-      stoppedReason: allWords.length < requestedCount ? 'empty_batches' : '',
-    },
-  }
-}
-
 export function commitVocabularyDraft(db, input = {}) {
   const language = cleanText(input.language, 40) || '自定义语言'
   const bookName = cleanText(input.bookName, 80) || `${language}学习词库`
@@ -250,6 +121,9 @@ function normalizeProfile(input) {
     retrievalEnabled: Boolean(input.retrievalEnabled),
     conversation: normalizeConversation(input.conversation),
     researchSources: normalizeResearchSources(input.researchSources),
+    batchIndex: clampNumber(input.batchIndex ?? 1, 1, 9999),
+    batchFocus: cleanText(input.batchFocus, 500),
+    generationRange: cleanText(input.generationRange, 80),
     existingWords: [],
   }
 }
@@ -320,37 +194,6 @@ function normalizeExistingWords(words) {
 
 function normalizeTermKey(value) {
   return String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' ')
-}
-
-function estimateBatchCount(total) {
-  if (total <= FIRST_BATCH_SIZE) return 1
-  return 1 + Math.ceil((total - FIRST_BATCH_SIZE) / NEXT_BATCH_SIZE)
-}
-
-function batchSizeAttempts(size) {
-  const sizes = [size]
-  if (size > 25) sizes.push(25)
-  if (size > 10) sizes.push(10)
-  return [...new Set(sizes)]
-}
-
-function batchTimeoutMs(size, attemptIndex) {
-  if (attemptIndex > 0) return 22000
-  return size <= 25 ? 24000 : 30000
-}
-
-function uniqueNewWords(existing, incoming) {
-  const seen = new Set(existing.map((word) => normalizeTermKey(word.word)))
-  const accepted = []
-
-  for (const word of incoming) {
-    const key = normalizeTermKey(word.word)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    accepted.push(word)
-  }
-
-  return accepted
 }
 
 function defaultBookName(language, topic) {

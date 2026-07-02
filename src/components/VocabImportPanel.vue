@@ -1,18 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { FileText, Loader2, UploadCloud } from 'lucide-vue-next'
-import { useAiSettingsStore } from '../stores/aiSettings'
 import { useVocabImportStore } from '../stores/vocabImport'
 import { useVocabStore } from '../stores/vocab'
 
 const vocab = useVocabStore()
 const importer = useVocabImportStore()
-const aiSettings = useAiSettingsStore()
 
-const aiStatus = computed(() => (aiSettings.enabled ? 'DeepSeek 处理' : '本地规则解析'))
 const importBusy = computed(() => importer.importing || vocab.generatingPhonetics)
 const importButtonLabel = computed(() => {
-  if (importer.importing) return aiSettings.enabled ? 'DeepSeek 正在整理' : '正在导入'
+  if (importer.importing) return '正在导入'
   if (vocab.generatingPhonetics) return '正在补全读音'
   return '开始导入'
 })
@@ -21,10 +18,6 @@ function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   importer.setFile(input.files?.[0] ?? null)
 }
-
-onMounted(() => {
-  void aiSettings.load()
-})
 
 async function runImport() {
   const result = await importer.runImport(vocab.selectedBookId, vocab.selectedLanguageLabel)
@@ -36,9 +29,6 @@ async function runImport() {
     await vocab.refreshSelectedBookData()
   }
 
-  if (result.usedAi) {
-    await vocab.generateMissingPhonetics({ bookId: result.book.id, auto: true })
-  }
 }
 </script>
 
@@ -49,7 +39,7 @@ async function runImport() {
         <UploadCloud :size="18" />
         <strong>导入学习库</strong>
       </div>
-      <span>{{ aiStatus }}</span>
+      <span>本地规则解析</span>
     </header>
 
     <div class="import-target-grid">

@@ -1,7 +1,7 @@
 export const DEFAULT_AI_SETTINGS = {
   provider: 'deepseek',
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   enabled: false,
   reviewEnabled: false,
 }

@@ -3,12 +3,16 @@ import type {
   AiVocabConversationPlan,
   AiVocabDraft,
   AiVocabGenerationMode,
+  AiJob,
+  AiJobProgress,
+  AiJobType,
   AiVocabProfile,
   AiVocabResearchResult,
   AiVocabResearchSource,
   ImportTargetMode,
   VocabImportResult,
   WordDraft,
+  WordEntry,
 } from '../../types'
 import { requestJson } from './requestJson'
 
@@ -46,6 +50,8 @@ export type AiVocabStreamStartEvent = {
   generatedCount: number
   generatedBatches: number
   totalBatches: number
+  dynamicConcurrency?: number
+  activeRequests?: number
 }
 
 export type AiVocabStreamProgressEvent = {
@@ -56,6 +62,11 @@ export type AiVocabStreamProgressEvent = {
   currentBatch: number
   requestedBatchSize: number
   retrying?: boolean
+  repairedCount?: number
+  remainingCount?: number
+  activeRequests?: number
+  completedRequests?: number
+  dynamicConcurrency?: number
 }
 
 export type AiVocabStreamBatchEvent = AiVocabDraft & {
@@ -64,6 +75,11 @@ export type AiVocabStreamBatchEvent = AiVocabDraft & {
   generatedBatches: number
   totalBatches: number
   requestedBatchSize?: number
+  repairedCount?: number
+  remainingCount?: number
+  activeRequests?: number
+  completedRequests?: number
+  dynamicConcurrency?: number
 }
 
 export type AiVocabStreamDoneEvent = {
@@ -72,6 +88,13 @@ export type AiVocabStreamDoneEvent = {
   generatedBatches: number
   totalBatches: number
   stoppedReason?: string
+  status?: string
+  repairedCount?: number
+}
+
+export type AiJobCreatePayload = {
+  type: AiJobType
+  payload: Record<string, unknown>
 }
 
 export type AiVocabStreamHandlers = {
@@ -79,13 +102,7 @@ export type AiVocabStreamHandlers = {
   onProgress?: (event: AiVocabStreamProgressEvent) => void
   onBatch?: (event: AiVocabStreamBatchEvent) => void
   onDone?: (event: AiVocabStreamDoneEvent) => void
-}
-
-export async function generateAiVocabDraft(payload: GenerateAiVocabPayload): Promise<AiVocabDraft> {
-  return requestJson<AiVocabDraft>('/api/ai/vocab/draft', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
+  onRetry?: (event: AiJobProgress & { error?: string; delayMs?: number }) => void
 }
 
 export async function planAiVocabConversation(payload: PlanAiVocabPayload): Promise<AiVocabConversationPlan> {
@@ -106,12 +123,35 @@ export async function streamAiVocabDraft(
   payload: GenerateAiVocabPayload,
   handlers: AiVocabStreamHandlers = {},
 ): Promise<void> {
-  const response = await fetch('/api/ai/vocab/stream', {
+  const { job } = await createAiJob<WordDraft>({ type: 'generate_vocab', payload })
+  await subscribeAiJobEvents(job.id, handlers)
+}
+
+export async function createAiJob<T = WordDraft | WordEntry>(payload: AiJobCreatePayload): Promise<{ job: AiJob<T> }> {
+  return requestJson<{ job: AiJob<T> }>('/api/ai/jobs', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
 
+export async function fetchAiJob<T = WordDraft | WordEntry>(jobId: string): Promise<AiJob<T>> {
+  const payload = await requestJson<{ job: AiJob<T> }>(`/api/ai/jobs/${encodeURIComponent(jobId)}`)
+  return payload.job
+}
+
+export async function cancelAiJob<T = WordDraft | WordEntry>(jobId: string): Promise<AiJob<T>> {
+  const payload = await requestJson<{ job: AiJob<T> }>(`/api/ai/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  return payload.job
+}
+
+export async function subscribeAiJobEvents(
+  jobId: string,
+  handlers: AiVocabStreamHandlers = {},
+): Promise<void> {
+  const response = await fetch(`/api/ai/jobs/${encodeURIComponent(jobId)}/events`)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(readErrorMessage(text) || `请求失败：${response.status}`)
@@ -183,6 +223,10 @@ function dispatchSseMessage(message: string, handlers: AiVocabStreamHandlers) {
   }
   if (event === 'done') {
     handlers.onDone?.(data as AiVocabStreamDoneEvent)
+    return
+  }
+  if (event === 'retry') {
+    handlers.onRetry?.(data as AiJobProgress & { error?: string; delayMs?: number })
     return
   }
   if (event === 'error') {

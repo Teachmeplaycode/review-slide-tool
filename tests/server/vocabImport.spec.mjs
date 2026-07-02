@@ -2,8 +2,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createApp } from './app.mjs'
-import { parseDeepSeekWords } from './aiProviders/deepseek.mjs'
+import { createApp } from '../../server/app.mjs'
+import { parseDeepSeekWords } from '../../server/aiProviders/deepseek.mjs'
 
 const tmpDir = path.resolve(process.cwd(), '.tmp')
 
@@ -45,7 +45,7 @@ describe('vocabulary import API', () => {
     const saved = await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-1234567890abcdef',
+        apiKey: 'unit-deepseek-key-0001',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: true,
@@ -55,15 +55,15 @@ describe('vocabulary import API', () => {
 
     expect(saved.settings.enabled).toBe(true)
     expect(saved.settings.hasApiKey).toBe(true)
-    expect(saved.settings.apiKeyPreview).toBe('sk-1****cdef')
-    expect(JSON.stringify(loaded)).not.toContain('sk-1234567890abcdef')
+    expect(saved.settings.apiKeyPreview).toBe('unit****0001')
+    expect(JSON.stringify(loaded)).not.toContain('unit-deepseek-key-0001')
   })
 
   it('saves Tavily search settings without returning the full API key', async () => {
     const saved = await json('/api/settings/search', {
       method: 'PUT',
       body: {
-        apiKey: 'tvly-1234567890abcdef',
+        apiKey: 'unit-tavily-key-0001',
         baseUrl: 'https://api.tavily.com',
         enabled: true,
       },
@@ -73,8 +73,8 @@ describe('vocabulary import API', () => {
     expect(saved.settings.provider).toBe('tavily')
     expect(saved.settings.enabled).toBe(true)
     expect(saved.settings.hasApiKey).toBe(true)
-    expect(saved.settings.apiKeyPreview).toBe('tvly****cdef')
-    expect(JSON.stringify(loaded)).not.toContain('tvly-1234567890abcdef')
+    expect(saved.settings.apiKeyPreview).toBe('unit****0001')
+    expect(JSON.stringify(loaded)).not.toContain('unit-tavily-key-0001')
   })
 
   it('plans an advanced AI vocabulary profile from chat messages', async () => {
@@ -94,7 +94,7 @@ describe('vocabulary import API', () => {
     await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-abcdef123456',
+        apiKey: 'unit-deepseek-key-0002',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: false,
@@ -120,7 +120,7 @@ describe('vocabulary import API', () => {
     expect(plan.profile.language).toBe('英语')
     expect(plan.profile.level).toBe('中级')
     expect(conversationAdapter).toHaveBeenCalledWith(expect.objectContaining({
-      settings: expect.objectContaining({ apiKey: 'sk-abcdef123456' }),
+      settings: expect.objectContaining({ apiKey: 'unit-deepseek-key-0002' }),
       conversation: [expect.objectContaining({ role: 'user' })],
     }))
   })
@@ -143,7 +143,7 @@ describe('vocabulary import API', () => {
     await json('/api/settings/search', {
       method: 'PUT',
       body: {
-        apiKey: 'tvly-abcdef123456',
+        apiKey: 'unit-tavily-key-0002',
         baseUrl: 'https://api.tavily.com',
         enabled: true,
       },
@@ -169,7 +169,7 @@ describe('vocabulary import API', () => {
     expect(result.provider).toBe('tavily')
     expect(result.sources).toHaveLength(1)
     expect(searchAdapter).toHaveBeenCalledWith(expect.objectContaining({
-      settings: expect.objectContaining({ apiKey: 'tvly-abcdef123456' }),
+      settings: expect.objectContaining({ apiKey: 'unit-tavily-key-0002' }),
       maxResults: undefined,
     }))
   })
@@ -219,7 +219,7 @@ describe('vocabulary import API', () => {
     expect(words.total).toBe(2)
   })
 
-  it('uses the configured DeepSeek adapter and normalizes AI output', async () => {
+  it('imports locally even when DeepSeek settings exist', async () => {
     aiAdapter.mockResolvedValue([
       { word: 'ocean', meaningZh: '海洋', phonetic: '/ˈəʊʃn/', partOfSpeech: 'n.', difficulty: 2 },
       { word: '', meaningZh: '无效' },
@@ -228,7 +228,7 @@ describe('vocabulary import API', () => {
     await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-abcdef123456',
+        apiKey: 'unit-deepseek-key-0002',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: true,
@@ -237,7 +237,7 @@ describe('vocabulary import API', () => {
 
     const result = await multipart('/api/import/vocab', {
       fileName: 'ai.txt',
-      text: '请整理 ocean 这个单词',
+      text: 'ocean - sea',
       fields: {
         targetMode: 'new_book',
         bookName: 'AI 词库',
@@ -245,13 +245,9 @@ describe('vocabulary import API', () => {
       },
     })
 
-    expect(aiAdapter).toHaveBeenCalledWith(expect.objectContaining({
-      sourceFile: 'ai.txt',
-      language: '英语',
-      settings: expect.objectContaining({ apiKey: 'sk-abcdef123456' }),
-    }))
-    expect(result.provider).toBe('deepseek')
-    expect(result.usedAi).toBe(true)
+    expect(aiAdapter).not.toHaveBeenCalled()
+    expect(result.provider).toBe('local')
+    expect(result.usedAi).toBe(false)
     expect(result.importedCount).toBe(1)
     expect(result.skippedCount).toBe(0)
     expect(result.previewWords[0].word).toBe('ocean')
@@ -283,7 +279,7 @@ describe('vocabulary import API', () => {
     await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-abcdef123456',
+        apiKey: 'unit-deepseek-key-0002',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: false,
@@ -326,7 +322,7 @@ describe('vocabulary import API', () => {
 
     expect(aiVocabAdapter).toHaveBeenCalledWith(expect.objectContaining({
       profile: expect.objectContaining({ language: '法语', wordCount: 5000 }),
-      settings: expect.objectContaining({ apiKey: 'sk-abcdef123456' }),
+      settings: expect.objectContaining({ apiKey: 'unit-deepseek-key-0002' }),
     }))
     expect(draft.words).toHaveLength(2)
     expect(committed.book.language).toBe('法语')
@@ -343,7 +339,7 @@ describe('vocabulary import API', () => {
     await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-abcdef123456',
+        apiKey: 'unit-deepseek-key-0002',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: false,
@@ -368,60 +364,98 @@ describe('vocabulary import API', () => {
     }))
   })
 
-  it('streams AI draft words in backend batches', async () => {
-    aiVocabAdapter.mockImplementation(({ profile }) => {
-      const start = profile.existingWords.length + 1
-      return makeAiWords(start, profile.wordCount)
+  it('runs large AI generation jobs concurrently and streams UI-sized batches', async () => {
+    let active = 0
+    let maxActive = 0
+    aiVocabAdapter.mockImplementation(async ({ profile }) => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await delay(10)
+      active -= 1
+      return makeJobWords(`chunk-${profile.batchIndex}`, 1, profile.wordCount)
     })
     await json('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-abcdef123456',
+        apiKey: 'unit-deepseek-key-0002',
         baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash',
         enabled: false,
       },
     })
 
-    const events = await sse('/api/ai/vocab/stream', {
+    const created = await json('/api/ai/jobs', {
+      method: 'POST',
       body: {
-        language: '日语',
-        topic: '日本旅行点餐常用表达',
-        level: '初级',
-        scenario: '旅行',
-        wordCount: 120,
-        bookName: '旅行日语',
+        type: 'generate_vocab',
+        payload: {
+          language: 'English',
+          topic: 'CET-4',
+          level: 'exam',
+          scenario: 'test',
+          wordCount: 1000,
+          bookName: 'CET-4',
+        },
       },
     })
+    const events = await sseGet(`/api/ai/jobs/${created.job.id}/events`)
     const batches = events.filter((event) => event.event === 'batch')
     const done = events.find((event) => event.event === 'done')
+    const loaded = await json(`/api/ai/jobs/${created.job.id}`)
 
-    expect(events[0]).toEqual(expect.objectContaining({
-      event: 'start',
-      data: expect.objectContaining({ requestedCount: 120, totalBatches: 12 }),
-    }))
-    expect(batches).toHaveLength(12)
-    expect(batches.every((batch) => batch.data.words.length === 10)).toBe(true)
+    expect(maxActive).toBeGreaterThan(1)
+    expect(maxActive).toBeLessThanOrEqual(16)
+    expect(batches.flatMap((event) => event.data.words)).toHaveLength(1000)
+    expect(batches.every((event) => event.data.words.length === 10)).toBe(true)
     expect(done.data).toEqual(expect.objectContaining({
-      requestedCount: 120,
-      generatedCount: 120,
-      generatedBatches: 12,
+      requestedCount: 1000,
+      generatedCount: 1000,
+      stoppedReason: '',
     }))
-    expect(aiVocabAdapter).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      profile: expect.objectContaining({ wordCount: 10, existingWords: [] }),
+    expect(loaded.job.status).toBe('succeeded')
+    expect(loaded.job.result).toHaveLength(1000)
+  })
+
+  it('refills AI jobs when concurrent chunks return too many duplicates', async () => {
+    aiVocabAdapter.mockImplementation(({ profile }) => {
+      if (profile.batchIndex <= 4) return makeJobWords('duplicate', 1, profile.wordCount)
+      return makeJobWords(`refill-${profile.batchIndex}`, 1, profile.wordCount)
+    })
+    await json('/api/settings/ai', {
+      method: 'PUT',
+      body: {
+        apiKey: 'unit-deepseek-key-0002',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        enabled: false,
+      },
+    })
+
+    const created = await json('/api/ai/jobs', {
+      method: 'POST',
+      body: {
+        type: 'generate_vocab',
+        payload: {
+          language: 'English',
+          topic: 'daily chat',
+          level: 'beginner',
+          scenario: 'chat',
+          wordCount: 200,
+          bookName: 'chat',
+        },
+      },
+    })
+    const events = await sseGet(`/api/ai/jobs/${created.job.id}/events`)
+    const done = events.find((event) => event.event === 'done')
+    const loaded = await json(`/api/ai/jobs/${created.job.id}`)
+
+    expect(loaded.job.result).toHaveLength(200)
+    expect(done.data).toEqual(expect.objectContaining({
+      requestedCount: 200,
+      generatedCount: 200,
+      stoppedReason: '',
     }))
-    expect(aiVocabAdapter).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      profile: expect.objectContaining({
-        wordCount: 10,
-        existingWords: makeAiWords(1, 10).map((word) => word.word),
-      }),
-    }))
-    expect(aiVocabAdapter).toHaveBeenNthCalledWith(12, expect.objectContaining({
-      profile: expect.objectContaining({
-        wordCount: 10,
-        existingWords: makeAiWords(1, 110).map((word) => word.word),
-      }),
-    }))
+    expect(aiVocabAdapter.mock.calls.length).toBeGreaterThan(4)
   })
 })
 
@@ -463,12 +497,8 @@ async function json(route, options = {}) {
   return readResponse(response)
 }
 
-async function sse(route, options = {}) {
-  const response = await fetch(`${baseUrl}${route}`, {
-    method: options.method ?? 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  })
+async function sseGet(route) {
+  const response = await fetch(`${baseUrl}${route}`)
   const text = await response.text()
 
   if (!response.ok) {
@@ -545,4 +575,24 @@ function makeAiWords(start, count) {
       difficulty: 1,
     }
   })
+}
+
+function makeJobWords(prefix, start, count) {
+  return Array.from({ length: count }, (_, index) => {
+    const id = start + index
+    return {
+      word: `${prefix}-word-${id}`,
+      phonetic: `/${prefix}-${id}/`,
+      partOfSpeech: 'n.',
+      meaningZh: `${prefix} meaning ${id}`,
+      exampleEn: `${prefix} word ${id} appears in context.`,
+      exampleZh: `${prefix} example ${id}`,
+      tags: prefix,
+      difficulty: 1,
+    }
+  })
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

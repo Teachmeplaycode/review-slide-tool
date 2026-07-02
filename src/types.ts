@@ -1,106 +1,3 @@
-export const QUESTION_TYPES = ['choice', 'true_false', 'blank', 'short', 'cloze'] as const
-
-export type QuestionType = (typeof QUESTION_TYPES)[number]
-
-export type QuestionOption = {
-  label: string
-  text: string
-}
-
-export type ParsedQuestion = {
-  id: string
-  type: QuestionType
-  stem: string
-  options: QuestionOption[]
-  answer: string
-  raw: string
-  confidence: number
-  warnings: string[]
-  enabled: boolean
-}
-
-export type StudySet = {
-  id: string
-  title: string
-  sourceFile: string
-  questions: ParsedQuestion[]
-  createdAt: number
-  updatedAt: number
-}
-
-export type QuizConfig = {
-  count: number
-  types: QuestionType[]
-  enableCloze: boolean
-  clozeRatio: number
-  reviewMode: ReviewMode
-}
-
-export type ClozeBlank = {
-  id: string
-  answer: string
-}
-
-export type ClozePayload = {
-  text: string
-  blanks: ClozeBlank[]
-}
-
-export type QuizQuestion = ParsedQuestion & {
-  sourceType: QuestionType
-  cloze?: ClozePayload
-}
-
-export type UserAnswer = {
-  questionId: string
-  value: string | string[]
-}
-
-export type GradeStatus = 'correct' | 'partial' | 'review' | 'wrong'
-
-export type ResultFilter = 'all' | 'wrong' | 'review' | 'correct'
-
-export type ReviewMode = 'random' | 'mistakes_first' | 'mistakes_only'
-
-export type GradedQuestion = {
-  question: QuizQuestion
-  userAnswer: string | string[]
-  expectedAnswer: string
-  score: number
-  status: GradeStatus
-  detail: string
-}
-
-export type Attempt = {
-  id: string
-  studySetId: string
-  answers: UserAnswer[]
-  results: GradedQuestion[]
-  score: number
-  createdAt: number
-}
-
-export type QuestionReviewStat = {
-  id: string
-  studySetId: string
-  questionId: string
-  attempts: number
-  correctCount: number
-  reviewCount: number
-  wrongCount: number
-  correctStreak: number
-  lastStatus: GradeStatus
-  lastScore: number
-  lastAttemptAt: number
-  updatedAt: number
-}
-
-export type ImportedText = {
-  title: string
-  sourceFile: string
-  text: string
-}
-
 export type StudyMode = 'recognition' | 'spelling' | 'mixed'
 
 export type WordProgress = {
@@ -195,6 +92,14 @@ export type StudyExplanation = {
   itemId: string
   wordId: string
   explanation: string
+}
+
+export type VocabRepairResult = {
+  requestedCount: number
+  updatedCount: number
+  skippedCount: number
+  remainingCount: number
+  words: WordEntry[]
 }
 
 export type StudyOverview = {
@@ -332,4 +237,42 @@ export type AiVocabDraft = {
   profile: AiVocabProfile
   words: WordDraft[]
   createdAt: number
+}
+
+export type AiJobType = 'generate_vocab' | 'repair_words'
+
+export type AiJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+
+export type AiJobProgress = {
+  status: AiJobStatus
+  requestedCount: number
+  generatedCount: number
+  repairedCount?: number
+  generatedBatches: number
+  totalBatches: number
+  currentBatch: number
+  requestedBatchSize: number
+  activeRequests: number
+  completedRequests: number
+  retryCount: number
+  retrying?: boolean
+  remainingCount?: number
+  dynamicConcurrency: number
+  maxConcurrency: number
+  stoppedReason?: string
+}
+
+export type AiJob<T = WordDraft | WordEntry> = {
+  id: string
+  type: AiJobType
+  status: AiJobStatus
+  payload: Record<string, unknown>
+  progress: AiJobProgress
+  result: T[]
+  errorMessage: string
+  cancelRequested: boolean
+  createdAt: number
+  startedAt: number | null
+  completedAt: number | null
+  updatedAt: number
 }

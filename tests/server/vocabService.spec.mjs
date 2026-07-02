@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createApp } from './app.mjs'
+import { createApp } from '../../server/app.mjs'
 
 const tmpDir = path.resolve(process.cwd(), '.tmp')
 
@@ -19,6 +19,16 @@ beforeEach(async () => {
     phoneticAdapter: async ({ words }) => words.map((word) => ({
       wordId: word.id,
       phonetic: `/${word.word}/`,
+    })),
+    wordRepairAdapter: async ({ words }) => words.map((word) => ({
+      wordId: word.id,
+      phonetic: `/${word.word}/`,
+      partOfSpeech: word.partOfSpeech || 'n.',
+      meaningZh: word.meaningZh || '自动释义',
+      exampleEn: word.exampleEn || `${word.word} appears in context.`,
+      exampleZh: word.exampleZh || '这是自动补全的例句。',
+      tags: word.tags || 'ai-repaired',
+      difficulty: word.difficulty || 2,
     })),
     studyExplanationAdapter: async ({ items }) => items.map((item) => ({
       itemId: item.id,
@@ -45,10 +55,14 @@ describe('vocabulary API', () => {
     const first = await request('/api/books')
     const second = await request('/api/books')
 
-    expect(first.books).toHaveLength(1)
-    expect(first.books[0].id).toBe('basic_english')
-    expect(first.books[0].wordCount).toBeGreaterThanOrEqual(100)
-    expect(second.books[0].wordCount).toBe(first.books[0].wordCount)
+    const basicBook = first.books.find((book) => book.id === 'basic_english')
+    const cet4Book = first.books.find((book) => book.id === 'cet4_english')
+    const secondCet4Book = second.books.find((book) => book.id === 'cet4_english')
+
+    expect(first.books).toHaveLength(2)
+    expect(basicBook?.wordCount).toBeGreaterThanOrEqual(100)
+    expect(cet4Book?.wordCount).toBe(4544)
+    expect(secondCet4Book?.wordCount).toBe(cet4Book?.wordCount)
   })
 
   it('exports the complete selected word book', async () => {
@@ -58,6 +72,21 @@ describe('vocabulary API', () => {
     expect(exported.wordCount).toBeGreaterThanOrEqual(100)
     expect(exported.words).toHaveLength(exported.wordCount)
     expect(exported.words.some((word) => word.word === 'ability' && word.phonetic)).toBe(true)
+  })
+
+  it('seeds CET-4 as a default word book', async () => {
+    const exported = await request('/api/books/cet4_english/export')
+
+    expect(exported.book.id).toBe('cet4_english')
+    expect(exported.book.name).toBe('CET-4')
+    expect(exported.wordCount).toBe(4544)
+    expect(exported.words).toHaveLength(4544)
+    expect(exported.words.some((word) => word.word === 'abruptly')).toBe(true)
+    expect(exported.words.find((word) => word.word === 'abruptly')).toEqual(expect.objectContaining({
+      word: 'abruptly',
+      meaningZh: '突然地',
+      tags: 'CET-4',
+    }))
   })
 
   it('creates recognition study items with the correct answer in choices', async () => {
@@ -95,7 +124,8 @@ describe('vocabulary API', () => {
     await request('/api/books/basic_english', { method: 'DELETE', expectStatus: 204 })
     const payload = await request('/api/books')
 
-    expect(payload.books).toHaveLength(0)
+    expect(payload.books.some((book) => book.id === 'basic_english')).toBe(false)
+    expect(payload.books.some((book) => book.id === 'cet4_english')).toBe(true)
   })
 
   it('generates missing phonetics with the saved API key', async () => {
@@ -112,7 +142,7 @@ describe('vocabulary API', () => {
     await request('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-test',
+        apiKey: 'unit-deepseek-key',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: false,
@@ -130,6 +160,84 @@ describe('vocabulary API', () => {
     expect(result.remainingCount).toBe(0)
     expect(result.words.some((word) => word.id === created.word.id && word.phonetic === '/zebrawood/')).toBe(true)
     expect(words.words[0].phonetic).toBe('/zebrawood/')
+  })
+
+  it('repairs incomplete word fields with the saved API key', async () => {
+    const created = await request('/api/books/basic_english/words', {
+      method: 'POST',
+      body: {
+        word: 'contextualize',
+        phonetic: '',
+        partOfSpeech: '',
+        meaningZh: '语境化',
+        exampleEn: '',
+        exampleZh: '',
+        difficulty: 2,
+      },
+    })
+    await request('/api/settings/ai', {
+      method: 'PUT',
+      body: {
+        apiKey: 'unit-deepseek-key',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-chat',
+        enabled: false,
+        reviewEnabled: false,
+      },
+    })
+
+    const result = await request('/api/books/basic_english/repair', {
+      method: 'POST',
+      body: { limit: 10 },
+    })
+    const words = await request('/api/books/basic_english/words?query=contextualize')
+
+    expect(result.requestedCount).toBeGreaterThanOrEqual(1)
+    expect(result.words.some((word) => word.id === created.word.id)).toBe(true)
+    expect(words.words[0].phonetic).toBe('/contextualize/')
+    expect(words.words[0].partOfSpeech).toBe('n.')
+    expect(words.words[0].exampleEn).toBe('contextualize appears in context.')
+  })
+
+  it('repairs incomplete word fields through the background AI job', async () => {
+    const created = await request('/api/books/basic_english/words', {
+      method: 'POST',
+      body: {
+        word: 'jobrepair',
+        phonetic: '',
+        partOfSpeech: '',
+        meaningZh: 'keep this meaning',
+        exampleEn: '',
+        exampleZh: '',
+        difficulty: 2,
+      },
+    })
+    await request('/api/settings/ai', {
+      method: 'PUT',
+      body: {
+        apiKey: 'unit-deepseek-key',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        enabled: false,
+        reviewEnabled: false,
+      },
+    })
+
+    const createdJob = await request('/api/ai/jobs', {
+      method: 'POST',
+      body: { type: 'repair_words', payload: { bookId: 'basic_english' } },
+    })
+    const events = await sseGet(`/api/ai/jobs/${createdJob.job.id}/events`)
+    const done = events.find((event) => event.event === 'done')
+    const batches = events.filter((event) => event.event === 'batch')
+    const words = await request('/api/books/basic_english/words?query=jobrepair')
+
+    expect(done.data.status).toBe('succeeded')
+    expect(batches.flatMap((event) => event.data.words).some((word) => word.id === created.word.id)).toBe(true)
+    expect(words.words[0].meaningZh).toBe('keep this meaning')
+    expect(words.words[0].phonetic).toBe('/jobrepair/')
+    expect(words.words[0].partOfSpeech).toBe('n.')
+    expect(words.words[0].exampleEn).toBe('jobrepair appears in context.')
   })
 
   it('grades spelling answers case-insensitively and trims spaces', async () => {
@@ -167,7 +275,7 @@ describe('vocabulary API', () => {
     await request('/api/settings/ai', {
       method: 'PUT',
       body: {
-        apiKey: 'sk-test',
+        apiKey: 'unit-deepseek-key',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-chat',
         enabled: false,
@@ -246,4 +354,42 @@ async function request(route, options = {}) {
   }
 
   return payload
+}
+
+async function sseGet(route) {
+  const response = await fetch(`${baseUrl}${route}`)
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+  }
+
+  return parseSseEvents(text)
+}
+
+function parseSseEvents(text) {
+  return text
+    .split(/\r?\n\r?\n/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      let event = 'message'
+      const dataLines = []
+
+      for (const line of block.split(/\r?\n/)) {
+        if (!line || line.startsWith(':')) continue
+        if (line.startsWith('event:')) {
+          event = line.slice('event:'.length).trim()
+          continue
+        }
+        if (line.startsWith('data:')) {
+          dataLines.push(line.slice('data:'.length).trimStart())
+        }
+      }
+
+      return dataLines.length
+        ? { event, data: JSON.parse(dataLines.join('\n')) }
+        : null
+    })
+    .filter(Boolean)
 }

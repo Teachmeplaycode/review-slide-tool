@@ -24,7 +24,7 @@ type AiSettingsState = {
 export const defaultAiSettingsDraft = (): AiSettingsDraft => ({
   apiKey: '',
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   enabled: false,
   reviewEnabled: false,
 })
@@ -98,7 +98,7 @@ export const useAiSettingsStore = defineStore('aiSettings', {
       this.draft = {
         apiKey: '',
         baseUrl: this.settings?.baseUrl ?? 'https://api.deepseek.com',
-        model: this.settings?.model ?? 'deepseek-chat',
+        model: this.settings?.model ?? 'deepseek-v4-flash',
         enabled: this.settings?.enabled ?? false,
         reviewEnabled: this.settings?.reviewEnabled ?? false,
       }
